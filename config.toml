@@ -1,0 +1,48 @@
+[input]
+base_dir = "./"
+sample_dir = "samples" # TODO: move to run?
+# genome_reference_file = "assembly/97103_v3_genome.fa"
+
+[output]
+results_dir = "results"
+out_file = "out.txt"
+err_file = "err.txt"
+
+[parameters]
+p = 8                  # num processers allocated
+auto_allocate_processors = false # automatically determine the maximum number of processors available
+alpha = 0.05           # for p-value filtering
+l2FC_thresh = 1         # for l2FC filtering
+frag_length_mean = 200 # for kallisto quant
+frag_length_std = 20   # for kallisto quant
+
+[runs]
+[runs.10DAP]
+annotations = {Cultivated = "", Wild = "", Pangene = ""}
+references = {Cultivated = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz", Wild = "../sra_data/base4/XG0486/XG0486_cds.fa.gz", Pangene = ""}
+conditions = ["S1G1T1P10D", "S1G2T1P10D"]
+samples = [
+    "S1G1T1P10D_Rep1_RS.fq.gz",
+    "S1G1T1P10D_Rep2_RS.fq.gz",
+    "S1G2T1P10D_Rep1_RS.fq.gz",
+    "S1G2T1P10D_Rep2_RS.fq.gz",
+]
+
+# 18DAP = [
+#     "S1G1T1P18D_Rep1_RS.fq.gz",
+#     "S1G1T1P18D_Rep2_RS.fq.gz",
+#     "S1G2T1P18D_Rep1_RS.fq.gz",
+#     "S1G2T1P18D_Rep2_RS.fq.gz",
+# ]
+# 26DAP = [
+#     "S1G1T1P26D_Rep1_RS.fq.gz",
+#     "S1G1T1P26D_Rep2_RS.fq.gz",
+#     "S1G2T1P26D_Rep1_RS.fq.gz",
+#     "S1G2T1P26D_Rep2_RS.fq.gz",
+# ]
+# 34DAP = [
+#     "S1G1T1P34D_Rep1_RS.fq.gz",
+#     "S1G1T1P34D_Rep2_RS.fq.gz",
+#     "S1G2T1P34D_Rep1_RS.fq.gz",
+#     "S1G2T1P34D_Rep2_RS.fq.gz",
+# ]
