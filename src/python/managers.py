@@ -1,5 +1,7 @@
+import os
+
 from pathlib import Path
-from typing import Union
+from typing import Union, Any
 from types import SimpleNamespace
 
 from .utils import *
@@ -8,7 +10,7 @@ from ..default_params import _DEFAULT_PARAMS
 
 class RunManager(SimpleNamespace):
     @staticmethod
-    def get_runs_and_references(config: dict[str, Any], default_params: dict = _DEFAULT_PARAMS) -> list[dict[str, Union[str , "RunManager"]]]:
+    def get_runs_and_references(config: dict[str, Any], default_params: dict[str, Any] = _DEFAULT_PARAMS) -> list[dict[str, Union[str , "RunManager"]]]:
         managers = []
         for run in config["runs"]:
             for reference in config["runs"][run]["references"]:
@@ -29,10 +31,10 @@ class RunManager(SimpleNamespace):
         
         # build out all files
         try:
-            locs["base_dir"] = input_files["base_dir"]
-            locs["sample_dir"] = input_files["sample_dir"]
-            locs["annotation_file"] = run_data["annotations"][reference]
-            locs["reference_file"] = run_data["references"][reference]      
+            locs["base_dir"] = Path(input_files["base_dir"])
+            locs["sample_dir"] = Path(input_files["sample_dir"])
+            locs["annotation_file"] = Path(run_data["annotations"][reference])
+            locs["reference_file"] = Path(run_data["references"][reference])   
         
         except KeyError as ke:
             key = str(ke).strip("\'").strip("\"")
@@ -41,7 +43,7 @@ class RunManager(SimpleNamespace):
             raise ke
         
         try:
-            locs["results_dir"] = Path(output_files["results_dir"])
+            locs["results_dir"] = Path(output_files["results_dir"]) / run
             locs["tmp_dir"] = locs["results_dir"] / "tmp"
             locs["kallisto_dir"] = locs["results_dir"] / "kallisto"
             locs["out_file"] = locs["results_dir"] / output_files.get("out_file", "out.txt")
@@ -55,6 +57,7 @@ class RunManager(SimpleNamespace):
         
         # add additional run information and prune references to other runs
         run_data["run"] = run
+        run_data["reference"] = reference
         run_data = {k: run_data[k] for k in ["run", "conditions", "samples"]}
         run_data["sample_names"] = {s: strip_all_extensions(s) for s in run_data["samples"]}
         
@@ -71,8 +74,17 @@ class RunManager(SimpleNamespace):
         
         super().__init__(data)
         
+        self.create_dirs(data)
+        
+    def create_dirs(self, data: dict[str, Any]):
+        for key in data.keys():
+            if "_dir" in key:
+                logger.debug(f"Making {data[key]}")
+                os.makedirs(data[key], exist_ok=True)
+        
     def append_filename(self, original: str | Path, append: str, delimiter: str = "_") -> Path:
         full = Path(original)
+        # temporarily remove all extensions
         filename, ext = os.path.splitext(full.name)
         filename, ext2 = os.path.splitext(filename)
         if len(ext2) > 0:
@@ -80,6 +92,7 @@ class RunManager(SimpleNamespace):
         return full.parent / (filename + delimiter + append + ext)
     
     def update_sample_name(self, i, new):
+        # change sample to a new file, but keep its plain name
         old = self.samples[i]
         if old in self.sample_names:
             self.sample_names[new] = self.sample_names[old]

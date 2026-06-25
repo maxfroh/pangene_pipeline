@@ -4,6 +4,7 @@ import sys
 import os
 
 from typing import Any
+from pathlib import Path
 
 
 # logger for program (maybe temp)
@@ -58,6 +59,8 @@ def gunzip(file: str):
     execute(cmds, f"Unzipping {file}.")
 
 
-def strip_all_extensions(file: str):
+def strip_all_extensions(file: str | Path):
+    """Remove all file extensions to just get the true basename of the path"""
+    f = Path(file)
     # remove file extensions to just get name of sample
-    return os.path.splitext(os.path.splitext(os.path.basename(file))[0])[0]
+    return os.path.splitext(os.path.splitext(f.name)[0])[0]

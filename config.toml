@@ -18,7 +18,7 @@ frag_length_std = 20   # for kallisto quant
 
 [runs]
 [runs.10DAPtest]
-annotations = {Cultivated = ""}
+annotations = {Cultivated = "./data/annotations/97103_v3.gtf"}
 references = {Cultivated = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz"}
 conditions = ["S1G1T1P10D", "S1G2T1P10D"]
 samples = [

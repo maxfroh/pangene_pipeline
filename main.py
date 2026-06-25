@@ -3,9 +3,12 @@ import tomllib
 
 from src.python.deg import DEG
 from src.python.utils import *
-from src.python.managers import FileManager, ParamsManager, RunManager
+from src.python.managers import RunManager
 
 def main():
+    open("out.txt", mode="w").close()
+    open("err.txt", mode="w").close()
+    
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-c", required=True,
                         type=str, help="The config file to use.")
@@ -21,7 +24,6 @@ def main():
     managers = RunManager.get_runs_and_references(config)
     for manager in managers:
         print(manager["run"], manager["reference"])
-        print(manager["manager"])
         
         deg = DEG(manager)
         deg.perform_deg()
