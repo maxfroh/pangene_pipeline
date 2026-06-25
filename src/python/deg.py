@@ -11,18 +11,18 @@ class DEG():
         self.mgr = mgr
         
     def perform_deg(self):
+        # self.clean_reads()
+        self.run_kallisto()
+        self.scale_abundances()
+    
+    def clean_reads(self, fq_in: Path, fq_out: Path):
         for i in range(len(self.mgr.samples)):
             fq_in = self.mgr.samples[i]
-            fq_out = self.mgr.tmp_dir / self.mgr.append_filename(fq_in, "trimmed")
-            self.clean_reads(fq_in, fq_out)
+            fq_out = self.mgr.tmp_dir / self.mgr.append_filename(fq_in, "trimmed").name
+            cmds = ["java", "-jar", "trimmomatic-0.40.jar", "SE", fq_in, fq_out, "ILLUMINA?", "..."]
             self.mgr.update_sample_name(i, fq_out)
-            
-        self.run_kallisto()
-        # self.scale_abundances()
-    
-    def clean_reads(fq_in: Path, fq_out: Path):
-        cmds = ["java", "-jar", "trimmomatic-0.40.jar", "SE", fq_in, fq_out, "ILLUMINA?", "..."]
-        execute(cmds, f"Trimming reads for {fq_in}")
+            execute(cmds, f"Trimming reads for {fq_in}.")
+        logger.info("Reads trimmed successfully!")
     
     def build_kallisto_index(self) -> Path:
         idx_file = f"{strip_all_extensions(self.mgr.reference_file)}.idx"
@@ -49,3 +49,7 @@ class DEG():
         if idx_file is None:
             idx_file = self.build_kallisto_index()
         self.kallisto_quantify(idx_file)
+
+    def scale_abundances(self):
+        cmds = ["Rscript", "deseq.R", self.mgr.annotation_file, self.mgr.alpha, self.mgr.l2FC_thresh, *self.mgr.samples]
+        execute(cmds, "Tximporting...")

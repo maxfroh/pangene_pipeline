@@ -1,9 +1,9 @@
 import argparse
 import tomllib
 
+from src.python.deg import DEG
 from src.python.utils import *
 from src.python.managers import FileManager, ParamsManager, RunManager
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -22,6 +22,9 @@ def main():
     for manager in managers:
         print(manager["run"], manager["reference"])
         print(manager["manager"])
+        
+        deg = DEG(manager)
+        deg.perform_deg()
     # file_mgr = FileManager(config)
     # params_mgr = ParamsManager(config)
     

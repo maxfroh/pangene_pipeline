@@ -57,6 +57,7 @@ def gunzip(file: str):
     cmds = ["gunzip", file]
     execute(cmds, f"Unzipping {file}.")
 
+
 def strip_all_extensions(file: str):
     # remove file extensions to just get name of sample
     return os.path.splitext(os.path.splitext(os.path.basename(file))[0])[0]

@@ -14,7 +14,10 @@ args = commandArgs(trailingOnly = TRUE)
 if (FALSE & length(args) < 10) {
   stop("You must call this file with the proper arguments.\nusage: Rscript deseq.R ...")
 } else {
-
+  annotation_file <- args[-1]
+  alpha <- args[-1]
+  lf2c_thresh <- args[-1]
+  samples <- args[4:length(args)]
 }
 
 # Read in .gtf file and prepare it for use by tximport
@@ -33,8 +36,6 @@ names(files) <- samples
 
 # tximport
 txi <- tximport::tximport(files, type = "kallisto", tx2gene = tx2gene, ignoreAfterBar = TRUE, countsFromAbundance = "no")
-counts <- txi$counts
-abundance <- txi$abundance
 
 sampleTable <- data.frame(condition = factor(rep(c("A", "B"), each = 3)))
 rownames(sampleTable) <- colnames(txi$counts)

@@ -1,6 +1,6 @@
 [input]
 base_dir = "./"
-sample_dir = "samples" # TODO: move to run?
+sample_dir = "data/samples" # TODO: move to run?
 # genome_reference_file = "assembly/97103_v3_genome.fa"
 
 [output]
@@ -17,9 +17,9 @@ frag_length_mean = 200 # for kallisto quant
 frag_length_std = 20   # for kallisto quant
 
 [runs]
-[runs.10DAP]
-annotations = {Cultivated = "", Wild = "", Pangene = ""}
-references = {Cultivated = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz", Wild = "../sra_data/base4/XG0486/XG0486_cds.fa.gz", Pangene = ""}
+[runs.10DAPtest]
+annotations = {Cultivated = ""}
+references = {Cultivated = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz"}
 conditions = ["S1G1T1P10D", "S1G2T1P10D"]
 samples = [
     "S1G1T1P10D_Rep1_RS.fq.gz",
@@ -27,6 +27,18 @@ samples = [
     "S1G2T1P10D_Rep1_RS.fq.gz",
     "S1G2T1P10D_Rep2_RS.fq.gz",
 ]
+
+
+# [runs.10DAP]
+# annotations = {Cultivated = "", Wild = "", Pangene = ""}
+# references = {Cultivated = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz", Wild = "../sra_data/base4/XG0486/XG0486_cds.fa.gz", Pangene = ""}
+# conditions = ["S1G1T1P10D", "S1G2T1P10D"]
+# samples = [
+#     "S1G1T1P10D_Rep1_RS.fq.gz",
+#     "S1G1T1P10D_Rep2_RS.fq.gz",
+#     "S1G2T1P10D_Rep1_RS.fq.gz",
+#     "S1G2T1P10D_Rep2_RS.fq.gz",
+# ]
 
 # 18DAP = [
 #     "S1G1T1P18D_Rep1_RS.fq.gz",
