@@ -1,23 +1,26 @@
-import subprocess
+#!/usr/bin/env python3
 import logging
-import sys
 import os
-
-from typing import Any
+import subprocess
+import sys
 from pathlib import Path
-
+from typing import Any
 
 # logger for program (maybe temp)
 logger = logging.Logger("Pipeline", level=logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 formatter.datefmt = "%Y-%m-%d %H:%M:%S"
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def execute(cmds: list[str | Any], msg: str = None, out_file: str = "out.txt", err_file: str = "err.txt"):
+def execute(
+    cmds: list[str | Any],
+    msg: str = None,
+    out_file: str = "out.txt",
+    err_file: str = "err.txt",
+):
     """
     Execute a line of code in the command line.
 
@@ -38,8 +41,7 @@ def execute(cmds: list[str | Any], msg: str = None, out_file: str = "out.txt", e
     cmds = [str(cmd) for cmd in cmds]
     logger.debug(f"Running: > {" ".join(cmds)}")
     with open(out_file, mode="a") as fout, open(err_file, mode="a") as errout:
-        result = subprocess.run(
-            cmds, stdout=fout, stderr=errout, check=True, text=True)
+        result = subprocess.run(cmds, stdout=fout, stderr=errout, check=True, text=True)
         try:
             result.check_returncode()
         except Exception as e:
@@ -59,7 +61,7 @@ def gunzip(file: str):
     execute(cmds, f"Unzipping {file}.")
 
 
-def strip_all_extensions(file: str | Path):
+def strip_filename(file: str | Path):
     """Remove all file extensions to just get the true basename of the path"""
     f = Path(file)
     # remove file extensions to just get name of sample

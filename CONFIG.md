@@ -30,12 +30,13 @@ key2 = value2
 |`results_dir`|`output`|✓|`string`|n/a|The directory where results will be stored.|
 |`out_file`|`output`|✗|`string`|"out.txt"|The file where `stdout` will be redirected.|
 |`err_file`|`output`|✗|`string`|"err.txt"|The file where `stderr` will be redirected.|
-|`p`|`parameters`|✗|`int`|1|The number of processors available to the pipeline.|
+|`p`|`parameters`|✗|`int`|1|The total number of processors available to the pipeline.|
 |`auto_allocate_processors`|`parameters`|✗|`boolean`|false|Whether to allow the pipeline to calculate the number of processors available. Will allow the tool to use all available processors!|
 |`alpha`|`parameters`|✗|`float`|0.05|The value to use for p-value comparison ($p < \alpha$) when determining differential expression determination.|
 |`l2FC_thresh`|`parameters`|✗|`float`|1|The value to use for $log_2$-fold-change thresholding when determining differential expression.|
 |`frag_length_mean`|`parameters`|✗|`float`|200|The mean read fragment length to provide to kallisto.|
 |`frag_length_std`|`parameters`|✗|`float`|20|The standard deviation of read fragment length to provide to kallisto.|
+|`redundancy_thresh`|`parameters`|✗|`float`|0.98|TODO|
 |`annotations`|`runs.RUN_NAME`|?|`table`|n/a|A dictionary where the key is the reference name and the value is its annotation file (`.gff` or `.gtf`). Example: `{Ref1 = "ref1.gff3", Ref2 = "ref2.gff3"}`.|
 |`references`|`runs.RUN_NAME`|✓|`table`|n/a|A dictionary where the key is the reference name and the value is its coding sequence file (`.fa[.gz]`). Example: `{Ref1 = "ref1_cds.fa.gz", Ref2 = "ref2_cds.fa.gz"}`.|
 |`conditions`|`runs.RUN_NAME`|✓|`list` of `string`|n/a|The names of samples being tested. If there are not multiple replicates, this can be the name of the different samples themselves. Otherwise, it is expected they would follow a pattern where the sample name is a substring of the replicates' names. Example: `SampleName` and replicates `SampleName_R1.fq.gz`, `SampleName_R2.fq.gz`, etc.|

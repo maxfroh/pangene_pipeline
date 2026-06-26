@@ -1,5 +1,12 @@
 __pycache__
+
+# directories
 data/
 results/
+
+# output files
 err.txt
 out.txt
+
+# just sketchpad for saving stuff
+scratch.py

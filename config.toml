@@ -9,12 +9,18 @@ out_file = "out.txt"
 err_file = "err.txt"
 
 [parameters]
-p = 8                  # num processers allocated
-auto_allocate_processors = false # automatically determine the maximum number of processors available
+p = 8                  # the maximum number of processors to use for an individual task instance
+auto_allocate_processors = false # automatically determine the maximum number of processors available and how many to use
 alpha = 0.05           # for p-value filtering
 l2FC_thresh = 1         # for l2FC filtering
 frag_length_mean = 200 # for kallisto quant
 frag_length_std = 20   # for kallisto quant
+redundancy_thresh = 0.98 # by how much to reduce redunandant genes in the pangene
+
+[pangene]
+grp_file = "../pangene_test/t2t-synOG-ID_97103_v3.grp"
+pangene_fastas_dir = "../sra_data/all/"
+pangene_reference_name = "Pangene"
 
 [runs]
 [runs.10DAPtest]
