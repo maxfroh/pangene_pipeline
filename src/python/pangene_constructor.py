@@ -46,7 +46,7 @@ class PangeneConstructor:
     def accumulate_final_results(self):
         pass
 
-    def build_pangene_fasta(self):
+    def build_pangene_fastas(self):
         pass
 
     def prune_redundancies(self):

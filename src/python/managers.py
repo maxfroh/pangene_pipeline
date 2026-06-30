@@ -64,6 +64,7 @@ class ReferenceManager(SimpleNamespace):
         try:
             locs["results_dir"] = Path(output_files["results_dir"]) / run
             locs["tmp_dir"] = locs["results_dir"] / "tmp"
+            locs["og_fastas_dir"] = locs["tmp_dir"] / "og_fastas"
             locs["kallisto_dir"] = locs["results_dir"] / "kallisto" / reference
             locs["out_file"] = locs["results_dir"] / output_files.get(
                 "out_file", "out.txt"
@@ -96,7 +97,7 @@ class ReferenceManager(SimpleNamespace):
 
         # determine threading parameters (total processors, number of subprocesses, actual p per task)
         if params["auto_allocate_processors"]:
-            params["total_p"] = os.cpu_count()
+            params["total_p"] = os.process_cpu_count()
         else:
             params["total_p"] = params["p"]
         params["num_threads"] = max(1, params["total_p"] // 8)
