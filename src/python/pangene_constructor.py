@@ -5,7 +5,12 @@ import shutil
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+import matplotlib.colors as colors
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+import scipy.stats as stats
+import seaborn as sns
 from pyfaidx import Fasta
 
 from src.python.managers import ParamManager, ReferenceManager
@@ -27,6 +32,8 @@ class PangeneConstructor:
         self.pangene_dir.mkdir(exist_ok=True, parents=True)
         self.tmp_dir = self.pangene_dir / "tmp"
         self.tmp_dir.mkdir(exist_ok=True, parents=True)
+        self.plots_dir = self.pangene_dir / "plots"
+        self.plots_dir.mkdir(exist_ok=True, parents=True)
         self.reference = reference
         self.constructed = False
         self.logger = default_logger
@@ -43,7 +50,7 @@ class PangeneConstructor:
                 f"Required [input] key {key} is missing from the configuration!"
             )
             raise ke
-        self.annotation_file = reference_dir / reference / "annotation.reduced_map"
+        self.annotation_file = reference_dir / reference / "annotation.map"
         self.cds_fasta = reference_dir / reference / f"{reference}_cds.fa.gz"
 
         if self.redunancy_thresh < 0.75 or self.redunancy_thresh > 1.0:
@@ -70,6 +77,7 @@ class PangeneConstructor:
         self.assign_representative_genes()
         self.accumulate_final_results()
         self.prune_redundancies()
+        self.plot_count_difference()
         self.constructed = True
 
     def get_orthologous_groups_with_orthofinder(self):
@@ -179,8 +187,8 @@ class PangeneConstructor:
         fasta_dir.mkdir(exist_ok=True, parents=True)
         full_dir = fasta_dir / "full"
         full_dir.mkdir(exist_ok=True, parents=True)
-        reduced_dir = fasta_dir / "parent"
-        reduced_dir.mkdir(exist_ok=True, parents=True)
+        self.reduced_dir = fasta_dir / "parent"
+        self.reduced_dir.mkdir(exist_ok=True, parents=True)
         if fasta_dir.exists():
             shutil.rmtree(fasta_dir)
 
@@ -200,7 +208,7 @@ class PangeneConstructor:
                     "-i",
                     full_dir / f"{og}.fa",
                     "-o",
-                    reduced_dir / f"{og}.reduced",
+                    self.reduced_dir / f"{og}.reduced",
                     "-c",
                     self.redunancy_thresh,
                     "-n",
@@ -234,7 +242,7 @@ class PangeneConstructor:
         self.logger.info("Orthologous groups reduced with CD-HIT successfully!")
 
         self.logger.info("Combining orthologous groups into a single FASTA.")
-        cmds = ["find", str(reduced_dir), "-name", "*.reduced"]
+        cmds = ["find", str(self.reduced_dir), "-name", "*.reduced"]
         reduced = subprocess.Popen(cmds, stdout=subprocess.PIPE)
         cmds = ["xargs", "cat"]
         with gzip.open(self.cds_fasta, mode="wt") as f:
@@ -253,3 +261,112 @@ class PangeneConstructor:
         annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
         annotation_df.rename(columns={"OGID": "Geneid", "mRNA": "transcript_id"})
         annotation_df.to_csv(self.annotation_file, sep="\t", index=False)
+        self.logger.info("Gene-to-orthologous group map file created successfully!")
+
+    def plot_count_difference(self):
+        self.logger.info(
+            "Plotting information about how much redundancy was removed from the pangene."
+        )
+        original_og_counts = (
+            self.melt_df[["OGID", "mRNA"]]
+            .groupby(["OGID"])
+            .count()
+            .rename(columns={"mRNA": "original"})
+        )
+        clstr_files = list(self.reduced_dir.glob("*.clstr"))
+        pruned_og_counts = {}
+        for clstr_file in clstr_files:
+            og = strip_filename(clstr_file)
+            with open(clstr_file, mode="r") as f:
+                pruned_og_counts[og] = sum(1 for line in f if ">Cluster" in line)
+        pruned_og_counts = pd.DataFrame([pruned_og_counts]).T.rename(
+            columns={0: "reduced"}
+        )
+
+        counts = pd.merge(
+            original_og_counts, pruned_og_counts, left_index=True, right_index=True
+        )
+
+        # original counts histogram
+        ax = sns.histplot(data=original_og_counts, x="original", stat="count", bins=100)
+        ax.set_yscale("log")
+        ax.set_ylim(bottom=0.8)
+        ax.set_ylabel("Count")
+        ax.set_xlabel("Size of Orthogroup")
+        ax.axvline(
+            x=original_og_counts["original"].mean(),
+            color="r",
+            linestyle="--",
+            linewidth=1,
+            label="Mean Count",
+        )
+        ax.axvline(
+            x=len(self.melt_df["XGAcc"].unique()),
+            color="orange",
+            linestyle="--",
+            linewidth=1,
+            label="Number of Genomes",
+        )
+        ax.set_title("Distribution of Original Orthogroup Sizes")
+        ax.legend()
+        ax.get_figure().savefig(self.plots_dir / "original_count_hist.png", dpi=600)
+
+        # reduced counts histogram
+        ax = sns.histplot(data=pruned_og_counts, x="reduced", stat="count", bins=100)
+        ax.set_yscale("log")
+        ax.set_ylim(bottom=0.8)
+        ax.set_ylabel("Count")
+        ax.set_xlabel("Size of Orthogroup")
+        ax.axvline(
+            x=pruned_og_counts["reduced"].mean(),
+            color="r",
+            linestyle="--",
+            linewidth=1,
+            label="Mean Count",
+        )
+        ax.axvline(
+            x=len(self.melt_df["XGAcc"].unique()),
+            color="orange",
+            linestyle="--",
+            linewidth=1,
+            label="Number of Genomes",
+        )
+        ax.set_title("Distribution of Reduced Orthogroup Sizes")
+        ax.legend()
+        ax.get_figure().savefig(self.plots_dir / "pruned_count_hist.png", dpi=600)
+
+        # heatmap for reduction
+        x = counts["original"]
+        y = counts["reduced"]
+        fig, ax = plt.subplots()
+        ax.set_xscale("log")
+        mesh, x_edges, y_edges, im = ax.hist2d(
+            x=x,
+            y=y,
+            bins=[
+                np.logspace(np.log10(x.min()), np.log10(x.max()), 100),
+                np.linspace(y.min(), y.max(), 100),
+            ],
+            cmap="viridis",
+            cmin=1,
+            norm=colors.LogNorm(vmin=1, vmax=None),
+        )
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label("Number of Groups")
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        line = np.logspace(np.log10(xlim[0]), np.log10(xlim[1]), 100)
+        ax.plot(
+            line,
+            line,
+            color="r",
+            linestyle="--",
+            label="No reduction",
+            transform=ax.transData,
+        )
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_xlabel("Original")
+        ax.set_ylabel("Reduced")
+        ax.legend()
+        fig.savefig(self.plots_dir / "reduction_comparison.png", dpi=600)

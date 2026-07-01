@@ -7,6 +7,7 @@ results/
 # output files
 err.txt
 out.txt
+test.*
 
 # just sketchpad for saving stuff
 scratch.py

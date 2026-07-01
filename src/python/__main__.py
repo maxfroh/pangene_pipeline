@@ -2,14 +2,16 @@
 import argparse
 import tomllib
 
+import seaborn as sns
+
 from src.defaults import _ALL_STEPS
 from src.python.deg import DEG
-from src.python.managers import ReferenceManager
-from src.python.pangene_constructor import PangeneConstructor
+from src.python.managers import PipelineManager
 from src.python.utils import *
 
 
 def main(args: list):
+    sns.set_theme()
     open("out.txt", mode="w").close()
     open("err.txt", mode="w").close()
 
@@ -25,17 +27,13 @@ def main(args: list):
     config_file = args.config
 
     with open(config_file, mode="rb") as cf:
-        config = tomllib.load(cf)
+        config_dict = tomllib.load(cf)
 
-    print(config)
+    # print(config_dict)
 
-    managers = ReferenceManager.get_runs_and_references(config)
-    for manager in managers:
-        print(manager["run"], manager["reference"])
-
-        # deg = DEG(manager)
-        # deg.perform_deg()
-        constructor = PangeneConstructor(manager)
+    pipeline = PipelineManager(config_dict)
+    pipeline.setup()
+    pipeline.run()
 
 
 if __name__ == "__main__":

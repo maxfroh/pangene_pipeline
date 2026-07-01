@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NotRequired, Protocol, TypedDict, Union
 
+import pandas as pd
+
 from src.defaults import _DEFAULT_PARAMS
 from src.python.deg import DEG
 from src.python.pangene_constructor import PangeneConstructor
@@ -54,7 +56,7 @@ class ReferenceManager:
     out_file: Path = field(init=False)
     err_file: Path = field(init=False)
     tmp_dir: Path = field(init=False)
-    kallisto_dir: Path = field(init=False)
+    dge_dir: Path = field(init=False)
 
     def __post_init__(self):
         self.reference_dir = Path(self.reference_dir)
@@ -62,15 +64,13 @@ class ReferenceManager:
         self.cds_fasta = Path(self.cds_fasta)
         self.tmp_dir = self.reference_dir / "tmp"
         self.tmp_dir.mkdir(exist_ok=True, parents=True)
-        self.kallisto_dir = self.reference_dir / "kallisto"
-        self.kallisto_dir.mkdir(exist_ok=True, parents=True)
+        self.dge_dir = self.reference_dir / "dge"
+        self.dge_dir.mkdir(exist_ok=True, parents=True)
         self.out_file = self.log_dir / f"{self.reference}.out"
         self.err_file = self.log_dir / f"{self.reference}.err"
-        self.annotation_file = self.prepare_annotation_file(
-            Path(self.annotation_file), self.tmp_dir / "annotation.gtf"
-        )
+        self.annotation_file = self.prepare_annotation_file(Path(self.annotation_file))
 
-    def prepare_annotation_file(self, annotation_file: Path, out_loc: Path) -> Path:
+    def prepare_annotation_file(self, annotation_file: Path) -> Path:
         """
         Prepares an annotation file (`.gtf` or `.gff`) for use by the pipeline.
         Will gunzip the annotation file and convert it to a `.gtf` file if necessary.
@@ -83,24 +83,43 @@ class ReferenceManager:
         annotation_name, annotation_type, is_gzipped = get_name_ext_and_is_gzip(
             annotation_file
         )
-        annotation_file = f"{annotation_name}{annotation_type}"
+        annotation_file = annotation_file.parent / f"{annotation_name}{annotation_type}"
         if is_gzipped:
             gunzippped_annotation_file = (
                 self.tmp_dir / f"{annotation_name}{annotation_type}"
             )
             gunzip(annotation_file, out_file=gunzippped_annotation_file, replace=False)
             annotation_file = gunzippped_annotation_file
+
+        converted_to_gtf = False
         # --> GTF if annotation file is GFF
         if "gff" in annotation_type.lower():
-            cmds = ["gffread", annotation_file, "-T", "-o", out_loc]
+            gtf = self.tmp_dir / f"{annotation_name}.gtf"
+            cmds = ["gffread", annotation_file, "-T", "-o", gtf]
             execute(cmds, f"Converting {annotation_file} to .GTF.")
             default_logger.info("Annotation file prepared successfully!")
-        else:
-            gtf = annotation_file
-        return Path(gtf)
+            converted_to_gtf = True
+            annotation_file = gtf
 
-    def perform_de_analysis(self):
-        pass
+        # --> Map file
+        if ".gtf" in annotation_type.lower() or converted_to_gtf:
+            gtf = pd.read_csv(self.annotation_file, sep="\t", header=None, usecols=[8])
+            gtf = pd.DataFrame.from_records(
+                gtf[8]
+                .str.split("; ")
+                .apply(
+                    lambda x: dict(
+                        item.strip().split(" ") for item in x if item.strip()
+                    )
+                )
+            )
+            gtf = gtf[["gene_id", "transcript_id"]].replace({'"': "", ";": ""})
+            gtf = gtf.rename(columns={"gene_id": "Geneid"})
+
+            annotation_file = self.tmp_dir / f"{annotation_name}.map"
+            gtf.to_csv(annotation_file, sep="\t", index=False)
+
+        return Path(annotation_file)
 
     def __str__(self) -> str:
         return f"ReferenceManager {self.run}::{self.reference}"
@@ -121,6 +140,7 @@ class RunManager:
     refms: list[ReferenceManager] = field(default=[], init=False)
     samples: dict[str, Path] = field(default={}, init=False)
     conditions: dict[str, str] = field(default={}, init=False)
+    pangene_map_file: Path = field(init=False)
 
     def __post_init__(self):
         self.logs_dir = self.run_dir / "logs"
@@ -139,6 +159,7 @@ class RunManager:
         if len(pangene_references) > 0:
             for pangene in pangene_references:
                 refm_info[pangene] = self.pangene_dict[pangene].get_reference_info()
+                self.pangene_map_file = self.pangene_dict[pangene].grp_file
         if len(constructed_references) > 0:
             for reference in constructed_references:
                 refm_info[reference] = self.references[reference]
@@ -176,6 +197,7 @@ class RunManager:
 
 class PipelineManager:
     def __init__(self, config_dict: ConfigDict):
+        self.config_dict = config_dict
         self.output_dir = Path(config_dict["output"]["results_dir"])
         self.output_dir.mkdir(exist_ok=True, parents=True)
         self.pangenes_dir = self.output_dir / "pangenes"
@@ -185,7 +207,7 @@ class PipelineManager:
         self.logs_dir = self.output_dir / "logs"
         self.logs_dir.mkdir(exist_ok=True, parents=True)
 
-        params = config_dict["cores"] | config_dict["parameters"]
+        params = self.config_dict["cores"] | self.config_dict["parameters"]
         self.pm = ParamManager(**params)
         self.pangenes: dict[str, PangeneConstructor] = {}
         self.references: dict[str, tuple[Path, Path]] = {}
@@ -196,17 +218,19 @@ class PipelineManager:
                 pangene_name, self.pangenes_dir, pangene_info, self.pm
             )
 
-        for reference_name, reference_info in config_dict["reference"].items():
+        for reference_name, reference_info in self.config_dict["reference"].items():
             self.references[reference_name] = (
                 Path(reference_info["annotation_file"]),
                 Path(reference_info["cds_fasta"]),
             )
 
+    def setup(self):
         for pc in self.pangenes.values():
             if not pc.constructed:
                 pc.construct_pangene()
 
-        for run_name, run_data in config_dict["run"].items():
+    def run(self):
+        for run_name, run_data in self.config_dict["run"].items():
             run_dir = self.runs_dir / run_name
             run_dir.mkdir(exist_ok=True, parents=True)
             run_pm = self.pm.get_run_variant(run_data.get("params", {}))
