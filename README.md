@@ -1,5 +1,46 @@
 # pangene_pipeline
 
+# TODO:
+* hashing for reuse of references/kallisto/deseq results? -- may be more trouble than it's worth
+
+## Current organization:
+```txt
+.
+├── logs
+│   ├── other.err
+│   └── other.out
+├── pangenes
+│   └── pangene1
+│       ├── plots
+│       │   └── reduced_vs_full_counts.png
+│       ├── reduced_cds.fa.gz
+│       ├── reduced_cds.reduced_map
+│       ├── synOG.grp
+│       └── synOG.grp.melt
+└── runs
+    └── run1
+        ├── logs
+        │   ├── ref1.err
+        │   ├── ref1.out
+        │   ├── ref2.err
+        │   ├── ref2.out
+        │   ├── run1.err
+        │   └── run1.out
+        ├── plots
+        │   └── venn.png
+        ├── references
+        │   ├── ref1
+        │   │   ├── deseq
+        │   │   ├── kallisto
+        │   │   └── tmp
+        │   └── ref2
+        │       ├── deseq
+        │       ├── kallisto
+        │       └── tmp
+        └── tables
+            └── all_de_results_aligned.tsv
+```
+
 
 ```mermaid
 %%{init: {'theme': 'dark'}}%%
@@ -13,10 +54,12 @@ classDiagram
         + frag_length_std: int
     }
     class PangeneConstructor {
+        + logger: Logger?
         + build_pangene(pm: ParamManager)
         + get_pangene_reference_manager()
     }
     class ReferenceManager {
+        + logger: Logger
         + reference: str
         + annotation_file : Path
         + cds_fasta: Path

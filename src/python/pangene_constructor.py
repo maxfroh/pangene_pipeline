@@ -1,15 +1,64 @@
 #!/usr/bin/env python3
 import bisect
+import gzip
+import shutil
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from src.python.managers import ManagerDict, ReferenceManager
+import pandas as pd
+from pyfaidx import Fasta
+
+from src.python.managers import ParamManager, ReferenceManager
 from src.python.utils import *
 
 
 class PangeneConstructor:
-    def __init__(self, mgr: ManagerDict):
-        self.mgr = mgr["manager"]
-        self.run = mgr["run"]
-        self.reference = mgr["reference"]
+    def __init__(
+        self,
+        reference: str,
+        reference_dir: Path,
+        pangene_dir: Path,
+        pangene_info: dict[str, str | float],
+        pm: ParamManager,
+    ):
+        """ """
+        self.pm = pm
+        self.pangene_dir = pangene_dir / reference
+        self.pangene_dir.mkdir(exist_ok=True, parents=True)
+        self.tmp_dir = self.pangene_dir / "tmp"
+        self.tmp_dir.mkdir(exist_ok=True, parents=True)
+        self.reference = reference
+        self.constructed = False
+        self.logger = default_logger
+
+        try:
+            self.grp_file = Path(pangene_info["grp_file"])
+            self.pangene_fastas_dir = Path(pangene_info["pangene_fastas_dir"])
+            self.pangene_fastas_dir.mkdir(exist_ok=True, parents=True)
+            self.redunancy_thresh = pangene_info["redundancy_thresh"]
+        except KeyError as ke:
+            key = str(ke).strip("'").strip('"')
+            # add categories to have more information
+            self.logger.error(
+                f"Required [input] key {key} is missing from the configuration!"
+            )
+            raise ke
+        self.annotation_file = reference_dir / reference / "annotation.reduced_map"
+        self.cds_fasta = reference_dir / reference / f"{reference}_cds.fa.gz"
+
+        if self.redunancy_thresh < 0.75 or self.redunancy_thresh > 1.0:
+            thresh = max(min(0.75, self.redunancy_thresh), 1.0)
+            self.logger.info(
+                f"Pangene redundancy threshold for {self.reference} is out of bounds! New threshold is {thresh} (was {self.redunancy_thresh})"
+            )
+            thresh = self.redunancy_thresh
+
+        threshholds = [0.8, 0.85, 0.88, 0.9, 0.925, 0.95, 0.975, 1.01]
+        word_sizes = [4, 5, 6, 7, 8, 9, 10, 11]
+        self.word_size = word_sizes[bisect.bisect(threshholds, thresh)]
+
+    def get_reference_info(self) -> tuple[Path, Path]:
+        return (self.annotation_file, self.cds_fasta)
 
     def construct_pangene(self):
         self.get_orthologous_groups_with_orthofinder()
@@ -21,6 +70,7 @@ class PangeneConstructor:
         self.assign_representative_genes()
         self.accumulate_final_results()
         self.prune_redundancies()
+        self.constructed = True
 
     def get_orthologous_groups_with_orthofinder(self):
         pass
@@ -49,29 +99,157 @@ class PangeneConstructor:
     def build_pangene_fastas(self):
         pass
 
-    def prune_redundancies(self):
-        # get word_size; see https://github.com/weizhongli/cdhit/wiki/3.-User's-Guide#user-content-CDHITEST for source of numbers
-        thresh = self.mgr.redundancy_thresh
-        thresh = max(min(0.75, thresh), 1.0)
-        threshholds = [0.8, 0.85, 0.88, 0.9, 0.925, 0.95, 0.975, 1.01]
-        word_sizes = [4, 5, 6, 7, 8, 9, 10, 11]
-        word_size = word_sizes[bisect.bisect(threshholds, thresh)]
-
-        fasta_file: Path = ""
-        reduced_out = fasta_file.parent / (strip_filename(fasta_file) + thresh) + ".fa"
-
-        cmds = [
-            "cd-hit-est",
-            "-i",
-            fasta_file,
-            "-o",
-            reduced_out,
-            "-c",
-            thresh,
-            "-n",
-            word_size,
-            "-T",
-            self.mgr.p,
-        ]
-
+    def plot_reduction(self):
         pass
+
+    def bgz_genome(self, genome):
+        fasta_loc = (
+            self.pangene_fastas_dir / genome / f"{genome}_cds.fa.gz"
+        )  # TODO: make sure this holds up to snuff -- is this generalized enough?
+        bgz_loc = self.tmp_dir / genome / f"{genome}_cds.fa.bgz"
+        cmds = ["gzip", "-dc", str(fasta_loc)]
+        raw_fasta = subprocess.Popen(cmds, stdout=subprocess.PIPE)
+        with open(bgz_loc, mode="wb") as bgz_out:
+            cmds = ["bgzip"]
+            execute(
+                cmds,
+                stdin=raw_fasta.stdout,
+                stdout=bgz_out,
+                log_out=False,
+                file_out=True,
+                logger=self.logger,
+            )
+        cmds = ["samtools", "faidx", bgz_loc]
+        execute(cmds, f"Building FASTA index file for {genome}.", logger=self.logger)
+        self.logger.log(f"FASTA index for {genome} built successfully!")
+
+    def _extract_data(self, genome, data: list[tuple[str, str]]):
+        fasta = Fasta(self.tmp_dir / genome / f"{genome}_cds.fa.bgz")
+        local_buffer = defaultdict(list)
+        for orthogroup, mrna in data:
+            if mrna in fasta:
+                local_buffer[orthogroup].append(
+                    f">{mrna}_{orthogroup}\n{fasta[mrna]}\n"
+                )
+            else:
+                self.logger.error(f"{mrna} not found in {genome}")
+        return local_buffer
+
+    def prune_redundancies(self):
+        self.melt_df = pd.read_csv(self.grp_file, sep="\t", dtype=str)
+        grouped_melt_df = self.melt_df.groupby("XGAcc")
+        extraction_data: dict[str, list[tuple[str, str]]] = {}
+        for genome in grouped_melt_df.groups.keys():
+            extraction_data[genome] = (
+                grouped_melt_df.get_group(genome)[["OGID", "mRNA"]]
+                .to_records(index=False)
+                .tolist()
+            )
+
+        with ProcessPoolExecutor(max_workers=self.pm.p) as executor:
+            executor.map(
+                self.bgz_genome, [genome for genome in grouped_melt_df.groups.keys()]
+            )
+
+        global_buffer = defaultdict(list)
+        with ProcessPoolExecutor(max_workers=self.pm.p) as executor:
+            future_to_genome = {
+                executor.submit(
+                    self._extract_data, genome, extraction_data[genome]
+                ): genome
+                for genome in extraction_data.keys()
+            }
+            try:
+                for future in as_completed(future_to_genome):
+                    fasta_data = future.result()
+                    for orthogroup, sequences in fasta_data.items():
+                        global_buffer[orthogroup].extend(sequences)
+            except KeyboardInterrupt:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except MemoryError:  # is this good enough?
+                executor.shutdown(wait=False, cancel_futures=True)
+                self.logger.error(
+                    f"Ran out of memory while extracting FASTA information to build the {self.reference} pangene!"
+                )
+            finally:
+                executor.shutdown(wait=True)
+        # get word_size; see https://github.com/weizhongli/cdhit/wiki/3.-User's-Guide#user-content-CDHITEST for source of numbers
+
+        fasta_dir = self.tmp_dir / "fastas"
+        fasta_dir.mkdir(exist_ok=True, parents=True)
+        full_dir = fasta_dir / "full"
+        full_dir.mkdir(exist_ok=True, parents=True)
+        reduced_dir = fasta_dir / "parent"
+        reduced_dir.mkdir(exist_ok=True, parents=True)
+        if fasta_dir.exists():
+            shutil.rmtree(fasta_dir)
+
+        self.logger.info("Writing orthologous groups to FASTA files.")
+        for orthogroup, sequences in global_buffer.items():
+            out_fasta_loc = full_dir / f"{orthogroup}.fa"
+            with open(out_fasta_loc, mode="w") as fout:
+                fout.writelines(sequences)
+        self.logger.info("Orthologous group FASTAs written successfully!")
+
+        self.logger.info("Using CD-HIT to make orthologous groups less redundant.")
+        cmds = {
+            og: [
+                str(cmd)
+                for cmd in [
+                    "cd-hit-est",
+                    "-i",
+                    full_dir / f"{og}.fa",
+                    "-o",
+                    reduced_dir / f"{og}.reduced",
+                    "-c",
+                    self.redunancy_thresh,
+                    "-n",
+                    self.word_size,
+                    "-d",
+                    0,
+                ]
+            ]
+            for og in self.melt_df["OGID"].unique()
+        }
+        with ProcessPoolExecutor(max_workers=self.pm.p) as executor:
+            futures = [
+                executor.submit(
+                    execute,
+                    cmds[og],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.STDOUT,
+                    log_out=False,
+                    log_err=False,
+                    logger=self.logger,
+                )
+                for og in self.melt_df["OGID"].unique()
+            ]
+            try:
+                for future in as_completed(futures):
+                    pass
+            except KeyboardInterrupt:
+                executor.shutdown(wait=False, cancel_futures=True)
+            finally:
+                executor.shutdown(wait=True)
+        self.logger.info("Orthologous groups reduced with CD-HIT successfully!")
+
+        self.logger.info("Combining orthologous groups into a single FASTA.")
+        cmds = ["find", str(reduced_dir), "-name", "*.reduced"]
+        reduced = subprocess.Popen(cmds, stdout=subprocess.PIPE)
+        cmds = ["xargs", "cat"]
+        with gzip.open(self.cds_fasta, mode="wt") as f:
+            execute(
+                cmds,
+                stdin=reduced.stdout,
+                stdout=f,
+                file_out=True,
+                log_out=False,
+                logger=self.logger,
+            )
+
+        self.logger.info("One reduced FASTA file created successfully!")
+
+        annotation_df = self.melt_df[["OGID", "mRNA"]]
+        annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
+        annotation_df.rename(columns={"OGID": "Geneid", "mRNA": "transcript_id"})
+        annotation_df.to_csv(self.annotation_file, sep="\t", index=False)

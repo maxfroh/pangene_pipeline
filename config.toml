@@ -8,9 +8,11 @@ results_dir = "results"
 out_file = "out_{run}.txt"
 err_file = "err_{run}.txt"
 
-[parameters]
+[cores]
 p = 8                  # the maximum number of processors to use for an individual task instance
 auto_allocate_processors = false # automatically determine the maximum number of processors available and how many to use
+
+[parameters]
 alpha = 0.05           # for p-value filtering
 l2FC_thresh = 1         # for l2FC filtering
 frag_length_mean = 200 # for kallisto quant
@@ -39,6 +41,7 @@ cds_fasta = "../sra_data/base4/XG0486/XG0486_cds.fa.gz"
 [run.10DAPtest]
 use = {"pangene" = ["Pangene"], "reference" = ["Cultivated", "Wild"]} # which references to use
 conditions = ["S1G1T1P10D", "S1G2T1P10D"]
+sample_dir = "data/samples"
 samples = [
     "S1G1T1P10D_Rep1_RS.fq.gz",
     "S1G1T1P10D_Rep2_RS.fq.gz",

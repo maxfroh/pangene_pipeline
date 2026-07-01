@@ -1,139 +1,217 @@
 #!/usr/bin/env python3
 import os
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Protocol, TypedDict, Union
+from typing import Any, NotRequired, Protocol, TypedDict, Union
 
 from src.defaults import _DEFAULT_PARAMS
+from src.python.deg import DEG
+from src.python.pangene_constructor import PangeneConstructor
 from src.python.utils import *
 
 
-class ManagerDict(TypedDict):
+class ConfigDict(TypedDict):
+    input: dict[str, str]
+    output: dict[str, str]
+    cores: dict[str, int | bool]
+    parameters: dict[str, int | float]
+    pangene: dict[str, dict[str, str | float]]
+    reference: dict[str, dict[str, str]]
+    run: dict[str, dict[str, dict[str, list[str]] | list[str]]]
+
+
+@dataclass
+class ParamManager:
+    p = 1  # the total number of cores allocated to the pipeline
+    auto_allocate_processors = (
+        False  # automatically determine the maximum number of processors available
+    )
+    alpha = 0.05  # for p-value filtering
+    l2FC_thresh = 1  # for l2FC filtering
+    frag_length_mean = 200  # for kallisto quant
+    frag_length_std = 20  # for kallisto quant
+    # redundancy_thresh: 0.98,  # by how much to reduce redunandant genes in the pangene
+
+    def __post_init__(self):
+        if self.auto_allocate_processors:
+            self.p = os.process_cpu_count()
+
+    def get_run_variant(self, **overrides) -> "ParamManager":
+        return replace(self, **overrides)
+
+
+@dataclass
+class ReferenceManager:
     run: str
     reference: str
-    manager: "ReferenceManager"
+    pm: ParamManager
+    reference_dir: Path
+    annotation_file: Path
+    cds_fasta: Path
+    log_dir: Path
+    out_file: Path = field(init=False)
+    err_file: Path = field(init=False)
+    tmp_dir: Path = field(init=False)
+    kallisto_dir: Path = field(init=False)
 
+    def __post_init__(self):
+        self.reference_dir = Path(self.reference_dir)
+        self.reference_dir.mkdir(exist_ok=True, parents=True)
+        self.cds_fasta = Path(self.cds_fasta)
+        self.tmp_dir = self.reference_dir / "tmp"
+        self.tmp_dir.mkdir(exist_ok=True, parents=True)
+        self.kallisto_dir = self.reference_dir / "kallisto"
+        self.kallisto_dir.mkdir(exist_ok=True, parents=True)
+        self.out_file = self.log_dir / f"{self.reference}.out"
+        self.err_file = self.log_dir / f"{self.reference}.err"
+        self.annotation_file = self.prepare_annotation_file(
+            Path(self.annotation_file), self.tmp_dir / "annotation.gtf"
+        )
 
-class _Placeholder(SimpleNamespace):
-    def __init__(self, config: dict[str, Any]):
-        super().__init__(config)
+    def prepare_annotation_file(self, annotation_file: Path, out_loc: Path) -> Path:
+        """
+        Prepares an annotation file (`.gtf` or `.gff`) for use by the pipeline.
+        Will gunzip the annotation file and convert it to a `.gtf` file if necessary.
 
-
-class ReferenceManager(SimpleNamespace):
-    @staticmethod
-    def get_runs_and_references(
-        config: dict[str, Any], default_params: dict[str, Any] = _DEFAULT_PARAMS
-    ) -> list[ManagerDict]:
-        managers = []
-        for run in config["runs"]:
-            for reference in config["runs"][run]["references"]:
-                manager = ReferenceManager(config, run, reference, default_params)
-                manager_dict: ManagerDict = {
-                    "run": run,
-                    "reference": reference,
-                    "manager": manager,
-                }
-                managers.append(manager_dict)
-        return managers
-
-    def __init__(
-        self, config: dict[str, Any], run: str, reference: str, defaults: dict
-    ):
-        self._config = config
-
-        input_files = config["input"]
-        output_files = config["output"]
-        run_data = config["runs"][run]
-        locs = {}
-
-        # build out all files
-        try:
-            locs["base_dir"] = Path(input_files["base_dir"])
-            locs["sample_dir"] = Path(input_files["sample_dir"])
-            locs["annotation_file"] = Path(run_data["annotations"][reference])
-            locs["reference_file"] = Path(run_data["references"][reference])
-
-        except KeyError as ke:
-            key = str(ke).strip("'").strip('"')
-            # add categories to have more information
-            logger.error(
-                f"Required [input] key {key} is missing from the configuration!"
+        :param annotation_file: The annotation file to use.
+        :type annotation_file: str
+        :return: The location of the usable `.gtf` file.
+        :rtype: str
+        """
+        annotation_name, annotation_type, is_gzipped = get_name_ext_and_is_gzip(
+            annotation_file
+        )
+        annotation_file = f"{annotation_name}{annotation_type}"
+        if is_gzipped:
+            gunzippped_annotation_file = (
+                self.tmp_dir / f"{annotation_name}{annotation_type}"
             )
-            raise ke
-
-        try:
-            locs["results_dir"] = Path(output_files["results_dir"]) / run
-            locs["tmp_dir"] = locs["results_dir"] / "tmp"
-            locs["og_fastas_dir"] = locs["tmp_dir"] / "og_fastas"
-            locs["kallisto_dir"] = locs["results_dir"] / "kallisto" / reference
-            locs["out_file"] = locs["results_dir"] / output_files.get(
-                "out_file", "out.txt"
-            )
-            locs["err_file"] = locs["results_dir"] / output_files.get(
-                "out_file", "err.txt"
-            )
-
-        except KeyError as ke:
-            key = str(ke).strip("'").strip('"')
-            # add categories to have more information
-            logger.error(
-                f"Required [output] key {key} is missing from the configuration!"
-            )
-            raise ke
-
-        # add additional run information and prune references to other runs
-        run_data["run"] = run
-        run_data["reference"] = reference
-        run_data = {k: run_data[k] for k in ["run", "conditions", "samples"]}
-        run_data["sample_name_map"] = {
-            s: strip_filename(s) for s in run_data["samples"]
-        }
-
-        # handle parameters defaulting
-        params = config["parameters"]
-        for k, v in defaults.items():
-            if k not in params:
-                params[k] = v
-
-        # determine threading parameters (total processors, number of subprocesses, actual p per task)
-        if params["auto_allocate_processors"]:
-            params["total_p"] = os.process_cpu_count()
+            gunzip(annotation_file, out_file=gunzippped_annotation_file, replace=False)
+            annotation_file = gunzippped_annotation_file
+        # --> GTF if annotation file is GFF
+        if "gff" in annotation_type.lower():
+            cmds = ["gffread", annotation_file, "-T", "-o", out_loc]
+            execute(cmds, f"Converting {annotation_file} to .GTF.")
+            default_logger.info("Annotation file prepared successfully!")
         else:
-            params["total_p"] = params["p"]
-        params["num_threads"] = max(1, params["total_p"] // 8)
-        if params["total_p"] < 4:
-            params["p"] = 1
-        elif 4 <= params["total_p"] < 8:
-            params["p"] = 4
-        else:
-            params["p"] = 8
+            gtf = annotation_file
+        return Path(gtf)
 
-        data = locs | params | run_data
+    def perform_de_analysis(self):
+        pass
 
-        super().__init__(data)
+    def __str__(self) -> str:
+        return f"ReferenceManager {self.run}::{self.reference}"
 
-        self.create_dirs(data)
 
-    def create_dirs(self, data: dict[str, Any]):
-        for key in data.keys():
-            if "_dir" in key:
-                logger.debug(f"Making {data[key]}")
-                os.makedirs(data[key], exist_ok=True)
+@dataclass
+class RunManager:
+    run: str
+    run_data: dict[str, dict[str, list[str]] | list[str]]
+    pm: ParamManager
+    run_dir: Path
+    pangene_dict: dict[str, PangeneConstructor]
+    reference_dict: dict[str, tuple[Path, Path]]
+    logs_dir: Path = field(init=False)
+    tables_dir: Path = field(init=False)
+    plots_dir: Path = field(init=False)
+    references_dir: Path = field(init=False)
+    refms: list[ReferenceManager] = field(default=[], init=False)
+    samples: dict[str, Path] = field(default={}, init=False)
+    conditions: dict[str, str] = field(default={}, init=False)
 
-    def append_filename(
-        self, original: str | Path, append: str, delimiter: str = "_"
-    ) -> Path:
-        full = Path(original)
-        # temporarily remove all extensions
-        filename, ext = os.path.splitext(full.name)
-        filename, ext2 = os.path.splitext(filename)
-        if len(ext2) > 0:
-            ext = ext2 + ext
-        return full.parent / (filename + delimiter + append + ext)
+    def __post_init__(self):
+        self.logs_dir = self.run_dir / "logs"
+        self.logs_dir.mkdir(exist_ok=True, parents=True)
+        self.tables_dir = self.run_dir / "tables"
+        self.tables_dir.mkdir(exist_ok=True, parents=True)
+        self.plots_dir = self.run_dir / "plots"
+        self.plots_dir.mkdir(exist_ok=True, parents=True)
+        self.references_dir = self.run_dir / "references"
+        self.references_dir.mkdir(exist_ok=True, parents=True)
 
-    def update_sample_name(self, i, new):
-        # change sample to a new file, but keep its plain name
-        old = self.samples[i]
-        if old in self.sample_name_map:
-            self.sample_name_map[new] = self.sample_name_map[old]
-        self.samples[i] = new
+        # get annotation and CDS fasta files for each reference this run
+        refm_info: dict[str, tuple[Path, Path]]
+        pangene_references: list[str] = self.run_data["use"].get("pangene", [])
+        constructed_references: list[str] = self.run_data["use"].get("reference", [])
+        if len(pangene_references) > 0:
+            for pangene in pangene_references:
+                refm_info[pangene] = self.pangene_dict[pangene].get_reference_info()
+        if len(constructed_references) > 0:
+            for reference in constructed_references:
+                refm_info[reference] = self.references[reference]
+
+        for reference, (annotation_file, cds_fasta) in refm_info:
+            refm = ReferenceManager(
+                self.run,
+                reference,
+                self.pm,
+                self.references_dir,
+                annotation_file,
+                cds_fasta,
+                self.logs_dir,
+            )
+            self.refms.append(refm)
+
+        sample_dir = Path(self.run_data["sample_dir"])
+        for sample_file in self.run_data["samples"]:
+            sample_path = sample_dir / sample_file
+            sample_name = strip_filename(sample_file)
+            self.samples[sample_name] = sample_path
+
+    def perform_de_analysis(self):
+        deg = DEG(self, self.samples)
+        deg.perform_de_analysis(self.refms)
+
+    def __getattr__(self, name):
+        if hasattr(self.pm, name):
+            return getattr(self.pm, name)
+        raise AttributeError(f"{self} does not contain {name}!")
+
+    def __str__(self) -> str:
+        return f"RunManager {self.run}"
+
+
+class PipelineManager:
+    def __init__(self, config_dict: ConfigDict):
+        self.output_dir = Path(config_dict["output"]["results_dir"])
+        self.output_dir.mkdir(exist_ok=True, parents=True)
+        self.pangenes_dir = self.output_dir / "pangenes"
+        self.pangenes_dir.mkdir(exist_ok=True, parents=True)
+        self.runs_dir = self.output_dir / "runs"
+        self.runs_dir.mkdir(exist_ok=True, parents=True)
+        self.logs_dir = self.output_dir / "logs"
+        self.logs_dir.mkdir(exist_ok=True, parents=True)
+
+        params = config_dict["cores"] | config_dict["parameters"]
+        self.pm = ParamManager(**params)
+        self.pangenes: dict[str, PangeneConstructor] = {}
+        self.references: dict[str, tuple[Path, Path]] = {}
+        self.runs: dict[str, RunManager] = {}
+
+        for pangene_name, pangene_info in config_dict["pangene"].items():
+            self.pangenes[pangene_name] = PangeneConstructor(
+                pangene_name, self.pangenes_dir, pangene_info, self.pm
+            )
+
+        for reference_name, reference_info in config_dict["reference"].items():
+            self.references[reference_name] = (
+                Path(reference_info["annotation_file"]),
+                Path(reference_info["cds_fasta"]),
+            )
+
+        for pc in self.pangenes.values():
+            if not pc.constructed:
+                pc.construct_pangene()
+
+        for run_name, run_data in config_dict["run"].items():
+            run_dir = self.runs_dir / run_name
+            run_dir.mkdir(exist_ok=True, parents=True)
+            run_pm = self.pm.get_run_variant(run_data.get("params", {}))
+            curr_run = RunManager(
+                run_name, run_data, run_pm, run_dir, self.pangenes, self.references
+            )
+
+            curr_run.perform_de_analysis()
