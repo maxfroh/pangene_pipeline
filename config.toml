@@ -1,7 +1,5 @@
 [input]
 base_dir = "./"
-sample_dir = "data/samples" # TODO: move to run?
-# genome_reference_file = "assembly/97103_v3_genome.fa"
 
 [output]
 results_dir = "results"
@@ -36,7 +34,6 @@ cds_fasta = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz"
 annotation_file = "../sra_data/base4/XG0486/XG0486.gff3.gz"
 cds_fasta = "../sra_data/base4/XG0486/XG0486_cds.fa.gz"
 
-
 [run]
 [run.10DAPtest]
 use = {"pangene" = ["Pangene"], "reference" = ["Cultivated", "Wild"]} # which references to use
@@ -48,7 +45,6 @@ samples = [
     "S1G2T1P10D_Rep1_RS.fq.gz",
     "S1G2T1P10D_Rep2_RS.fq.gz",
 ]
-
 
 # [runs.10DAP]
 # annotations = {Cultivated = "", Wild = "", Pangene = ""}

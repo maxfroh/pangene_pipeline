@@ -6,13 +6,24 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# logger for program (maybe temp)
 default_logger = logging.Logger("Pipeline", level=logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 formatter.datefmt = "%Y-%m-%d %H:%M:%S"
 handler.setFormatter(formatter)
 default_logger.addHandler(handler)
+
+
+def build_logger(name: str):
+    lgr = logging.Logger(name, level=logging.DEBUG)
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    formatter.datefmt = "%Y-%m-%d %H:%M:%S"
+    handler.setFormatter(formatter)
+    lgr.addHandler(handler)
+    return lgr
 
 
 def execute(

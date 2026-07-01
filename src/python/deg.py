@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
+import os
 import shutil
 from functools import reduce
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from src.python.managers import ReferenceManager, RunManager
-from src.python.utils import *
+from .reference_manager import ReferenceManager
+from .utils import build_logger, execute
+
+if TYPE_CHECKING:
+    from run_manager import RunManager
 
 
 class DEG:
@@ -14,6 +21,7 @@ class DEG:
         self.runm = runm
         self.samples = samples
         self.column_data_file = self.runm.tables_dir / "column_data.tsv"
+        self.logger = build_logger(f"DEG for {self.runm}")
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
         for refm in refms:
@@ -48,7 +56,7 @@ class DEG:
     #         ]
     #         self.mgr.update_sample_name(i, fq_out)
     #         execute(cmds, f"Trimming reads for {fq_in}.")
-    #     default_logger.info("Reads trimmed successfully!")
+    #     self.logger.info("Reads trimmed successfully!")
 
     def build_kallisto_index(self, refm: ReferenceManager) -> Path:
         """
@@ -70,11 +78,11 @@ class DEG:
             self.runm.p,
             refm.cds_fasta,
         ]
-        default_logger.debug(f"{idx_file}, {refm.dge_dir}")
-        default_logger.debug(cmds)
+        self.logger.debug(f"{idx_file}, {refm.dge_dir}")
+        self.logger.debug(cmds)
 
         execute(cmds, "Building kallisto index file.")
-        default_logger.info("Kallisto index file built successfully!")
+        self.logger.info("Kallisto index file built successfully!")
         return idx_file
 
     def kallisto_quantify(self, refm: ReferenceManager, idx_file: Path):
@@ -105,7 +113,7 @@ class DEG:
                 sample_file,
             ]
             execute(cmds, f"Quantifying {sample_name} with kallisto.")
-        default_logger.info("Samples quantified successfully!")
+        self.logger.info("Samples quantified successfully!")
 
     def run_kallisto(self, refm: ReferenceManager, idx_file: Path = None):
         """
@@ -151,7 +159,7 @@ class DEG:
             *self.samples.keys(),
         ]
         execute(cmds, "Preparing for differential expression analysis with DESeq2.")
-        default_logger.info("DESeq2 processing complete!")
+        self.logger.info("DESeq2 processing complete!")
 
     def build_tables(self):
         tables_dir = self.runm.tables_dir

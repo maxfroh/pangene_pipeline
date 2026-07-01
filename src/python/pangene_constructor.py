@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 import bisect
 import gzip
+import logging
 import shutil
+import subprocess
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scipy.stats as stats
 import seaborn as sns
 from pyfaidx import Fasta
 
-from src.python.managers import ParamManager, ReferenceManager
-from src.python.utils import *
+from .param_manager import ParamManager
+from .utils import build_logger, execute, strip_filename
 
 
 class PangeneConstructor:
@@ -36,7 +38,7 @@ class PangeneConstructor:
         self.plots_dir.mkdir(exist_ok=True, parents=True)
         self.reference = reference
         self.constructed = False
-        self.logger = default_logger
+        self.logger = build_logger(f"{str(self)}")
 
         try:
             self.grp_file = Path(pangene_info["grp_file"])
@@ -370,3 +372,6 @@ class PangeneConstructor:
         ax.set_ylabel("Reduced")
         ax.legend()
         fig.savefig(self.plots_dir / "reduction_comparison.png", dpi=600)
+
+    def __str__(self) -> str:
+        return f"PangeneConstructor {self.reference}"
