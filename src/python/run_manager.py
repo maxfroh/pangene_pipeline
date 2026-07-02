@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from .deg import DEG
 from .param_manager import ParamManager
 from .reference_manager import ReferenceManager
-from .utils import strip_filename
+from .utils import build_logger, strip_filename
 
 if TYPE_CHECKING:
     from .pangene_constructor import PangeneConstructor
@@ -24,14 +24,14 @@ class RunManager:
     run_dir: Path
     pangene_dict: dict[str, PangeneConstructor]
     reference_dict: dict[str, tuple[Path, Path]]
-    logger: logging.Logger
+    logger: logging.Logger = field(init=False)
     logs_dir: Path = field(init=False)
     tables_dir: Path = field(init=False)
     plots_dir: Path = field(init=False)
     references_dir: Path = field(init=False)
-    refms: list[ReferenceManager] = field(default=[], init=False)
-    samples: dict[str, Path] = field(default={}, init=False)
-    conditions: dict[str, str] = field(default={}, init=False)
+    refms: list[ReferenceManager] = field(default_factory=list, init=False)
+    conditions: dict[str, str] = field(default_factory=list, init=False)
+    samples: dict[str, Path] = field(default_factory=dict, init=False)
     pangene_map_file: Path = field(init=False)
 
     def __post_init__(self):
@@ -43,9 +43,10 @@ class RunManager:
         self.plots_dir.mkdir(exist_ok=True, parents=True)
         self.references_dir = self.run_dir / "references"
         self.references_dir.mkdir(exist_ok=True, parents=True)
+        self.logger = build_logger(f"{str(self)}")
 
         # get annotation and CDS fasta files for each reference this run
-        refm_info: dict[str, tuple[Path, Path]]
+        refm_info: dict[str, tuple[Path, Path]] = {}
         pangene_references: list[str] = self.run_data["use"].get("pangene", [])
         constructed_references: list[str] = self.run_data["use"].get("reference", [])
         if len(pangene_references) > 0:
@@ -54,9 +55,9 @@ class RunManager:
                 self.pangene_map_file = self.pangene_dict[pangene].grp_file
         if len(constructed_references) > 0:
             for reference in constructed_references:
-                refm_info[reference] = self.refms[reference]
+                refm_info[reference] = self.reference_dict[reference]
 
-        for reference, (annotation_file, cds_fasta) in refm_info:
+        for reference, (annotation_file, cds_fasta) in refm_info.items():
             refm = ReferenceManager(
                 self.run,
                 reference,
@@ -65,7 +66,6 @@ class RunManager:
                 annotation_file,
                 cds_fasta,
                 self.logs_dir,
-                self.logger,
             )
             self.refms.append(refm)
 
@@ -74,6 +74,8 @@ class RunManager:
             sample_path = sample_dir / sample_file
             sample_name = strip_filename(sample_file)
             self.samples[sample_name] = sample_path
+
+        self.conditions = self.run_data["conditions"]
 
     def perform_de_analysis(self):
         deg = DEG(self, self.samples)

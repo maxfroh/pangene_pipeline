@@ -5,7 +5,7 @@ import logging
 import shutil
 import subprocess
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import matplotlib.colors as colors
@@ -14,16 +14,16 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from pyfaidx import Fasta
+from tqdm import tqdm
 
 from .param_manager import ParamManager
-from .utils import build_logger, execute, strip_filename
+from .utils import build_logger, execute, execute_quiet, strip_filename
 
 
 class PangeneConstructor:
     def __init__(
         self,
         reference: str,
-        reference_dir: Path,
         pangene_dir: Path,
         pangene_info: dict[str, str | float],
         pm: ParamManager,
@@ -52,8 +52,8 @@ class PangeneConstructor:
                 f"Required [input] key {key} is missing from the configuration!"
             )
             raise ke
-        self.annotation_file = reference_dir / reference / "annotation.map"
-        self.cds_fasta = reference_dir / reference / f"{reference}_cds.fa.gz"
+        self.annotation_file = self.pangene_dir / "annotation.map"
+        self.cds_fasta = self.pangene_dir / f"{reference}_cds.fa.gz"
 
         if self.redunancy_thresh < 0.75 or self.redunancy_thresh > 1.0:
             thresh = max(min(0.75, self.redunancy_thresh), 1.0)
@@ -62,11 +62,15 @@ class PangeneConstructor:
             )
             thresh = self.redunancy_thresh
 
+        # get word_size; see https://github.com/weizhongli/cdhit/wiki/3.-User's-Guide#user-content-CDHITEST for source of numbers
         threshholds = [0.8, 0.85, 0.88, 0.9, 0.925, 0.95, 0.975, 1.01]
         word_sizes = [4, 5, 6, 7, 8, 9, 10, 11]
-        self.word_size = word_sizes[bisect.bisect(threshholds, thresh)]
+        self.word_size = word_sizes[bisect.bisect(threshholds, self.redunancy_thresh)]
 
     def get_reference_info(self) -> tuple[Path, Path]:
+        if not self.constructed:
+            self.logger.info(f"Pangene {str(self)} not constructed! Constructing now.")
+            self.construct_pangene()
         return (self.annotation_file, self.cds_fasta)
 
     def construct_pangene(self):
@@ -78,8 +82,8 @@ class PangeneConstructor:
         self.separate_orthologous_groups()
         self.assign_representative_genes()
         self.accumulate_final_results()
-        self.prune_redundancies()
-        self.plot_count_difference()
+        # self.prune_redundancies()
+        # self.plot_count_difference()
         self.constructed = True
 
     def get_orthologous_groups_with_orthofinder(self):
@@ -112,40 +116,45 @@ class PangeneConstructor:
     def plot_reduction(self):
         pass
 
-    def bgz_genome(self, genome):
+    def _bgz_genome(self, genome):
         fasta_loc = (
             self.pangene_fastas_dir / genome / f"{genome}_cds.fa.gz"
         )  # TODO: make sure this holds up to snuff -- is this generalized enough?
         bgz_loc = self.tmp_dir / genome / f"{genome}_cds.fa.bgz"
+        bgz_loc.parent.mkdir(exist_ok=True, parents=True)
         cmds = ["gzip", "-dc", str(fasta_loc)]
         raw_fasta = subprocess.Popen(cmds, stdout=subprocess.PIPE)
         with open(bgz_loc, mode="wb") as bgz_out:
             cmds = ["bgzip"]
-            execute(
-                cmds,
-                stdin=raw_fasta.stdout,
-                stdout=bgz_out,
-                log_out=False,
-                file_out=True,
-                logger=self.logger,
-            )
+            execute_quiet(cmds, stdin=raw_fasta.stdout, stdout=bgz_out)
+            # execute(
+            #     cmds,
+            #     stdin=raw_fasta.stdout,
+            #     stdout=bgz_out,
+            #     log_out=False,
+            #     log_err=False,
+            #     path_out=False,
+            #     file_out=True,
+            #     logger=self.logger,
+            # )
         cmds = ["samtools", "faidx", bgz_loc]
-        execute(cmds, f"Building FASTA index file for {genome}.", logger=self.logger)
+        execute_quiet(cmds, f"Building FASTA index file for {genome}.")
         self.logger.log(f"FASTA index for {genome} built successfully!")
 
     def _extract_data(self, genome, data: list[tuple[str, str]]):
-        fasta = Fasta(self.tmp_dir / genome / f"{genome}_cds.fa.bgz")
+        fasta_loc = self.tmp_dir / genome / f"{genome}_cds.fa.bgz"
+        fasta = Fasta(str(fasta_loc))
         local_buffer = defaultdict(list)
         for orthogroup, mrna in data:
             if mrna in fasta:
-                local_buffer[orthogroup].append(
-                    f">{mrna}_{orthogroup}\n{fasta[mrna]}\n"
-                )
+                sequence = fasta[mrna][:].seq
+                local_buffer[orthogroup].append(f">{mrna}_{orthogroup}\n{sequence}\n")
             else:
                 self.logger.error(f"{mrna} not found in {genome}")
         return local_buffer
 
     def prune_redundancies(self):
+        self.logger.info("Shrinking orthogroups by removing redundancies.")
         self.melt_df = pd.read_csv(self.grp_file, sep="\t", dtype=str)
         grouped_melt_df = self.melt_df.groupby("XGAcc")
         extraction_data: dict[str, list[tuple[str, str]]] = {}
@@ -156,13 +165,14 @@ class PangeneConstructor:
                 .tolist()
             )
 
-        with ProcessPoolExecutor(max_workers=self.pm.p) as executor:
+        with ThreadPoolExecutor(max_workers=min(self.pm.p + 4, 32)) as executor:
             executor.map(
-                self.bgz_genome, [genome for genome in grouped_melt_df.groups.keys()]
+                self._bgz_genome, [genome for genome in grouped_melt_df.groups.keys()]
             )
 
+        self.logger.info("Extracting FASTA records.")
         global_buffer = defaultdict(list)
-        with ProcessPoolExecutor(max_workers=self.pm.p) as executor:
+        with ProcessPoolExecutor(max_workers=min(16, self.pm.p)) as executor:
             future_to_genome = {
                 executor.submit(
                     self._extract_data, genome, extraction_data[genome]
@@ -170,7 +180,9 @@ class PangeneConstructor:
                 for genome in extraction_data.keys()
             }
             try:
-                for future in as_completed(future_to_genome):
+                for future in tqdm(
+                    as_completed(future_to_genome), total=len(future_to_genome)
+                ):
                     fasta_data = future.result()
                     for orthogroup, sequences in fasta_data.items():
                         global_buffer[orthogroup].extend(sequences)
@@ -183,16 +195,16 @@ class PangeneConstructor:
                 )
             finally:
                 executor.shutdown(wait=True)
-        # get word_size; see https://github.com/weizhongli/cdhit/wiki/3.-User's-Guide#user-content-CDHITEST for source of numbers
+        self.logger.info("FASTA records extracted successfully!")
 
-        fasta_dir = self.tmp_dir / "fastas"
+        fasta_dir = self.pangene_dir / "fastas"
+        if fasta_dir.exists():
+            shutil.rmtree(fasta_dir)
         fasta_dir.mkdir(exist_ok=True, parents=True)
         full_dir = fasta_dir / "full"
         full_dir.mkdir(exist_ok=True, parents=True)
-        self.reduced_dir = fasta_dir / "parent"
+        self.reduced_dir = fasta_dir / "reduced"
         self.reduced_dir.mkdir(exist_ok=True, parents=True)
-        if fasta_dir.exists():
-            shutil.rmtree(fasta_dir)
 
         self.logger.info("Writing orthologous groups to FASTA files.")
         for orthogroup, sequences in global_buffer.items():
@@ -221,21 +233,17 @@ class PangeneConstructor:
             ]
             for og in self.melt_df["OGID"].unique()
         }
-        with ProcessPoolExecutor(max_workers=self.pm.p) as executor:
+        with ThreadPoolExecutor(max_workers=min(self.pm.p + 4, 32)) as executor:
             futures = [
                 executor.submit(
-                    execute,
+                    execute_quiet,
                     cmds[og],
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.STDOUT,
-                    log_out=False,
-                    log_err=False,
-                    logger=self.logger,
                 )
                 for og in self.melt_df["OGID"].unique()
             ]
             try:
-                for future in as_completed(futures):
+                for future in tqdm(as_completed(futures), total=len(futures)):
                     pass
             except KeyboardInterrupt:
                 executor.shutdown(wait=False, cancel_futures=True)
@@ -248,20 +256,24 @@ class PangeneConstructor:
         reduced = subprocess.Popen(cmds, stdout=subprocess.PIPE)
         cmds = ["xargs", "cat"]
         with gzip.open(self.cds_fasta, mode="wt") as f:
-            execute(
+            execute_quiet(
                 cmds,
                 stdin=reduced.stdout,
                 stdout=f,
-                file_out=True,
-                log_out=False,
-                logger=self.logger,
             )
 
         self.logger.info("One reduced FASTA file created successfully!")
 
+        # for genome in grouped_melt_df.groups.keys():
+        shutil.rmtree(self.tmp_dir)
+
         annotation_df = self.melt_df[["OGID", "mRNA"]]
-        annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
-        annotation_df.rename(columns={"OGID": "Geneid", "mRNA": "transcript_id"})
+        annotation_df["mRNA"] = (
+            annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
+        )
+        annotation_df = annotation_df.rename(
+            columns={"OGID": "Geneid", "mRNA": "transcript_id"}
+        )
         annotation_df.to_csv(self.annotation_file, sep="\t", index=False)
         self.logger.info("Gene-to-orthologous group map file created successfully!")
 
@@ -373,5 +385,16 @@ class PangeneConstructor:
         ax.legend()
         fig.savefig(self.plots_dir / "reduction_comparison.png", dpi=600)
 
+        self.logger.info("Plots made successfully!")
+
     def __str__(self) -> str:
         return f"PangeneConstructor {self.reference}"
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state["logger"]
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.logger = logging.getLogger(f"{str(self)}")

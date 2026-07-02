@@ -24,16 +24,19 @@ class DEG:
         self.logger = build_logger(f"DEG for {self.runm}")
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
+        print(refms)
         for refm in refms:
+            print(f"Looking at {refm}")
             self.perform_individual_de_analysis(refm)
+        print("Done")
+        self.build_tables()
+        self.plot_results()
 
     def perform_individual_de_analysis(self, refm: ReferenceManager):
         # self.clean_reads()
         self.run_kallisto(refm)
         self.make_condition_table()
         self.run_deseq(refm)
-        self.build_tables()
-        self.plot_results()
 
     # def clean_reads(self, fq_in: Path, fq_out: Path):
     #     for i in range(len(self.mgr.samples)):
@@ -75,13 +78,13 @@ class DEG:
             "-T",
             refm.tmp_dir,
             "-t",
-            self.runm.p,
+            min(self.runm.p, 8),
             refm.cds_fasta,
         ]
         self.logger.debug(f"{idx_file}, {refm.dge_dir}")
         self.logger.debug(cmds)
 
-        execute(cmds, "Building kallisto index file.")
+        execute(cmds, f"Building kallisto index file for {refm}.")
         self.logger.info("Kallisto index file built successfully!")
         return idx_file
 
@@ -102,7 +105,7 @@ class DEG:
                 "-i",
                 refm.dge_dir / idx_file,
                 "-t",
-                self.runm.p,
+                min(self.runm.p, 8),
                 "--single",
                 "-l",
                 self.runm.frag_length_mean,
@@ -112,7 +115,7 @@ class DEG:
                 refm.dge_dir / sample_name,
                 sample_file,
             ]
-            execute(cmds, f"Quantifying {sample_name} with kallisto.")
+            execute(cmds, f"Quantifying {sample_name} with kallisto using {refm}.")
         self.logger.info("Samples quantified successfully!")
 
     def run_kallisto(self, refm: ReferenceManager, idx_file: Path = None):
@@ -128,6 +131,7 @@ class DEG:
 
     def make_condition_table(self):
         conds = self.runm.conditions
+        print(conds)
         cond_dict = {"sample": [], "condition": []}
         for sample_name in self.samples.keys():
             cond_dict["sample"].append(sample_name)

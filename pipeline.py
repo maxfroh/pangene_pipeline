@@ -7,7 +7,7 @@ import seaborn as sns
 from src.python.pipeline_manager import PipelineManager
 
 
-def main(args: list):
+def main():
     sns.set_theme()
     open("out.txt", mode="w").close()
     open("err.txt", mode="w").close()
@@ -19,7 +19,7 @@ def main(args: list):
     parser.add_argument("--pangene", action="store_true")
     parser.add_argument("--benchmark", action="store_true")
 
-    args = parser.parse_args(args)
+    args = parser.parse_args()
 
     config_file = args.config
 

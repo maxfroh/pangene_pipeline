@@ -8,7 +8,7 @@ err_file = "err_{run}.txt"
 
 [cores]
 p = 8                  # the maximum number of processors to use for an individual task instance
-auto_allocate_processors = false # automatically determine the maximum number of processors available and how many to use
+auto_allocate_processors = true # automatically determine the maximum number of processors available and how many to use
 
 [parameters]
 alpha = 0.05           # for p-value filtering
@@ -19,7 +19,7 @@ frag_length_std = 20   # for kallisto quant
 # All pangenes to use (will construct)
 [pangene]
 [pangene.Pangene] # [pangene.PANGENE_NAME]
-grp_file = "../pangene_test/t2t-synOG-ID_97103_v3.grp"
+grp_file = "../pangene_test/synOG.grp_melt"
 pangene_fastas_dir = "../sra_data/all/"
 redundancy_thresh = 0.98 # by how much to reduce redunandant genes in the pangene
 

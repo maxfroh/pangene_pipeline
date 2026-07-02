@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -11,7 +13,7 @@ from .utils import build_logger, execute, get_name_ext_and_is_gzip, gunzip
 
 if TYPE_CHECKING:
     from .param_manager import ParamManager
-    
+
 
 @dataclass
 class ReferenceManager:
@@ -22,14 +24,15 @@ class ReferenceManager:
     annotation_file: Path
     cds_fasta: Path
     log_dir: Path
-    logger: logging.Logger
+    logger: logging.Logger = field(init=False)
     out_file: Path = field(init=False)
     err_file: Path = field(init=False)
     tmp_dir: Path = field(init=False)
     dge_dir: Path = field(init=False)
 
     def __post_init__(self):
-        self.reference_dir = Path(self.reference_dir)
+        self.logger = build_logger(f"{str(self)}")
+        self.reference_dir = self.reference_dir / self.reference
         self.reference_dir.mkdir(exist_ok=True, parents=True)
         self.cds_fasta = Path(self.cds_fasta)
         self.tmp_dir = self.reference_dir / "tmp"
@@ -39,7 +42,6 @@ class ReferenceManager:
         self.out_file = self.log_dir / f"{self.reference}.out"
         self.err_file = self.log_dir / f"{self.reference}.err"
         self.annotation_file = self.prepare_annotation_file(Path(self.annotation_file))
-        self.logger = build_logger(f"{str(self)}")
 
     def prepare_annotation_file(self, annotation_file: Path) -> Path:
         """
@@ -68,13 +70,14 @@ class ReferenceManager:
             gtf = self.tmp_dir / f"{annotation_name}.gtf"
             cmds = ["gffread", annotation_file, "-T", "-o", gtf]
             execute(cmds, f"Converting {annotation_file} to .GTF.")
+            os.remove(annotation_file)
             self.logger.info("Annotation file prepared successfully!")
             converted_to_gtf = True
             annotation_file = gtf
 
         # --> Map file
         if ".gtf" in annotation_type.lower() or converted_to_gtf:
-            gtf = pd.read_csv(self.annotation_file, sep="\t", header=None, usecols=[8])
+            gtf = pd.read_csv(annotation_file, sep="\t", header=None, usecols=[8])
             gtf = pd.DataFrame.from_records(
                 gtf[8]
                 .str.split("; ")
@@ -84,7 +87,9 @@ class ReferenceManager:
                     )
                 )
             )
-            gtf = gtf[["gene_id", "transcript_id"]].replace({'"': "", ";": ""})
+            gtf = gtf[["gene_id", "transcript_id"]].replace(
+                {'"': "", ";": ""}, regex=True
+            )
             gtf = gtf.rename(columns={"gene_id": "Geneid"})
 
             annotation_file = self.tmp_dir / f"{annotation_name}.map"

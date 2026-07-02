@@ -26,7 +26,7 @@ if (length(args) < 5) {
 }
 
 # Read in .gtf file and prepare it for use by tximport
-# if (tools::file_ext(annotation_file) == ".gtf") {
+# if (tools::file_ext(annotation_file) == "gtf") {
 #   gtf <- read.csv(annotation_file, sep = "\t", header = FALSE)["V9"]
 #   gtf$V9 <- stringr::str_replace(gtf$V9, ";$", "")
 #   gtf[c("transcript_id", "Geneid")] <- stringr::str_split_fixed(gtf$V9, "; ", 2)
@@ -37,14 +37,16 @@ if (length(args) < 5) {
 # } else {
 #   stop("Improper file for transcriptome:gene mapping!")
 # }
-if (tools::file_ext(annotation_file) == ".map") {
-  map <- read.csv(annotation_file, sep = "\t", header = TRUE)
+if (tools::file_ext(annotation_file) == "map") {
+  tx2gene_map <- read.csv(annotation_file, sep = "\t", header = TRUE)
 } else {
   stop("Improper file for transcriptome:gene mapping!")
 }
 
 # tx2gene will map transcript_ids to genes
-tx2gene <- unique(map[c("transcript_id", "Geneid")])
+tx2gene <- unique(tx2gene_map[c("transcript_id", "Geneid")])
+tx2gene$transcript_id <- as.character(tx2gene$transcript_id)
+tx2gene$Geneid <- as.character(tx2gene$Geneid)
 
 # read in all kallisto abundance files (one abundance file per sample/replicate)
 files <- file.path(dge_dir, samples, "abundance.tsv")
@@ -53,6 +55,7 @@ names(files) <- samples
 # tximport
 txi <- tximport::tximport(files, type = "kallisto", tx2gene = tx2gene, ignoreAfterBar = TRUE, countsFromAbundance = "no")
 
+print(counts_file)
 readr::write_tsv(as.data.frame(txi$counts), file=counts_file)
 readr::write_tsv(as.data.frame(txi$abundance), file=abundance_file)
 
@@ -64,7 +67,7 @@ dds <- DESeq2::DESeqDataSetFromTximport(txi = txi, colData = colData, design = ~
 
 print("Performing DESeq")
 dds <- DESeq2::DESeq(dds)
-resultsNames(dds)
+# resultsNames(dds)
 res <- results(dds, independentFiltering=FALSE)
 res$Geneid <- rownames(res) 
 # Only want false discovery rate and gene id
@@ -73,5 +76,5 @@ resTrunc <- res[, c("Geneid", "padj")]
 # Write truncated results
 readr::write_tsv(as.data.frame(resTrunc), file=results_file)
 
-summary(res)
+# summary(res)
 
