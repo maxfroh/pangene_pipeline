@@ -47,14 +47,16 @@ class RunManager:
 
         # get annotation and CDS fasta files for each reference this run
         refm_info: dict[str, tuple[Path, Path]] = {}
-        pangene_references: list[str] = self.run_data["use"].get("pangene", [])
-        constructed_references: list[str] = self.run_data["use"].get("reference", [])
-        if len(pangene_references) > 0:
-            for pangene in pangene_references:
+        self.pangene_references: list[str] = self.run_data["use"].get("pangene", [])
+        self.constructed_references: list[str] = self.run_data["use"].get(
+            "reference", []
+        )
+        if len(self.pangene_references) > 0:
+            for pangene in self.pangene_references:
                 refm_info[pangene] = self.pangene_dict[pangene].get_reference_info()
                 self.pangene_map_file = self.pangene_dict[pangene].grp_file
-        if len(constructed_references) > 0:
-            for reference in constructed_references:
+        if len(self.constructed_references) > 0:
+            for reference in self.constructed_references:
                 refm_info[reference] = self.reference_dict[reference]
 
         for reference, (annotation_file, cds_fasta) in refm_info.items():
@@ -78,7 +80,7 @@ class RunManager:
         self.conditions = self.run_data["conditions"]
 
     def perform_de_analysis(self):
-        deg = DEG(self, self.samples)
+        deg = DEG(self, self.samples, self.pangene_references)
         deg.perform_de_analysis(self.refms)
 
     def __getattr__(self, name):

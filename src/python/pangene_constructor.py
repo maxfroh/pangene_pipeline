@@ -2,10 +2,12 @@
 import bisect
 import gzip
 import logging
+import resource  # TODO: increase ulimit
 import shutil
 import subprocess
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
 import matplotlib.colors as colors
@@ -47,7 +49,6 @@ class PangeneConstructor:
             self.redunancy_thresh = pangene_info["redundancy_thresh"]
         except KeyError as ke:
             key = str(ke).strip("'").strip('"')
-            # add categories to have more information
             self.logger.error(
                 f"Required [input] key {key} is missing from the configuration!"
             )
@@ -183,18 +184,26 @@ class PangeneConstructor:
                 for future in tqdm(
                     as_completed(future_to_genome), total=len(future_to_genome)
                 ):
-                    fasta_data = future.result()
-                    for orthogroup, sequences in fasta_data.items():
-                        global_buffer[orthogroup].extend(sequences)
-            except KeyboardInterrupt:
-                executor.shutdown(wait=False, cancel_futures=True)
-            except MemoryError:  # is this good enough?
-                executor.shutdown(wait=False, cancel_futures=True)
-                self.logger.error(
-                    f"Ran out of memory while extracting FASTA information to build the {self.reference} pangene!"
-                )
-            finally:
-                executor.shutdown(wait=True)
+                    try:
+                        fasta_data = future.result()
+                        for orthogroup, sequences in fasta_data.items():
+                            global_buffer[orthogroup].extend(sequences)
+                    except BrokenProcessPool:
+                        self.logger.error(
+                            f"A process experienced a critical error while pruning {self.reference}, likely due to too little memory!"
+                        )
+                        raise
+                    except Exception as e:
+                        genome = future_to_genome[future]
+                        self.logger.error(
+                            f"Something went wrong processing {genome} while pruning {self.reference}: {e}"
+                        )
+
+            except (KeyboardInterrupt, SystemExit):
+                for future in future_to_genome:
+                    future.cancel()
+                raise
+
         self.logger.info("FASTA records extracted successfully!")
 
         fasta_dir = self.pangene_dir / "fastas"
@@ -208,9 +217,12 @@ class PangeneConstructor:
 
         self.logger.info("Writing orthologous groups to FASTA files.")
         for orthogroup, sequences in global_buffer.items():
-            out_fasta_loc = full_dir / f"{orthogroup}.fa"
+            out_fasta_loc = (
+                full_dir / f"{orthogroup}.fa"
+            )  # TODO: consider sharding later
             with open(out_fasta_loc, mode="w") as fout:
                 fout.writelines(sequences)
+        del global_buffer
         self.logger.info("Orthologous group FASTAs written successfully!")
 
         self.logger.info("Using CD-HIT to make orthologous groups less redundant.")
@@ -245,10 +257,10 @@ class PangeneConstructor:
             try:
                 for future in tqdm(as_completed(futures), total=len(futures)):
                     pass
-            except KeyboardInterrupt:
-                executor.shutdown(wait=False, cancel_futures=True)
-            finally:
-                executor.shutdown(wait=True)
+            except (KeyboardInterrupt, SystemExit):
+                for future in future_to_genome:
+                    future.cancel()
+                raise
         self.logger.info("Orthologous groups reduced with CD-HIT successfully!")
 
         self.logger.info("Combining orthologous groups into a single FASTA.")
@@ -268,6 +280,7 @@ class PangeneConstructor:
         shutil.rmtree(self.tmp_dir)
 
         annotation_df = self.melt_df[["OGID", "mRNA"]]
+        annotation_df["original_transcript_id"] = annotation_df["mRNA"]
         annotation_df["mRNA"] = (
             annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
         )

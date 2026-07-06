@@ -9,6 +9,7 @@
 suppressMessages(library("DESeq2"))
 suppressMessages(library("tximport"))
 suppressMessages(library("stringr"))
+suppressMessages(library("dplyr"))
 suppressMessages(library("readr"))
 suppressMessages(library("tools"))
 
@@ -24,6 +25,8 @@ if (length(args) < 5) {
   abundance_file <- args[6]
   samples <- args[7:length(args)]
 }
+
+print(results_file)
 
 # Read in .gtf file and prepare it for use by tximport
 # if (tools::file_ext(annotation_file) == "gtf") {
@@ -55,9 +58,15 @@ names(files) <- samples
 # tximport
 txi <- tximport::tximport(files, type = "kallisto", tx2gene = tx2gene, ignoreAfterBar = TRUE, countsFromAbundance = "no")
 
-print(counts_file)
-readr::write_tsv(as.data.frame(txi$counts), file=counts_file)
-readr::write_tsv(as.data.frame(txi$abundance), file=abundance_file)
+counts_data <- as.data.frame(txi$counts)
+counts_data$Geneid <- rownames(counts_data)
+counts_data <- counts_data %>% dplyr::relocate("Geneid")
+abundance_data <- as.data.frame(txi$abundance)
+abundance_data$Geneid <- rownames(abundance_data)
+abundance_data <- abundance_data %>% dplyr::relocate("Geneid")
+
+readr::write_tsv(counts_data, file=counts_file)
+readr::write_tsv(abundance_data, file=abundance_file)
 
 # get conditions so DESeq can group
 colData <- read.csv(column_data_file, sep="\t", row.names=1)
