@@ -29,6 +29,8 @@ class PipelineManager:
         self.output_dir.mkdir(exist_ok=True, parents=True)
         self.pangenes_dir = self.output_dir / "pangenes"
         self.pangenes_dir.mkdir(exist_ok=True, parents=True)
+        self.references_dir = self.output_dir / "references"
+        self.references_dir.mkdir(exist_ok=True, parents=True)
         self.runs_dir = self.output_dir / "runs"
         self.runs_dir.mkdir(exist_ok=True, parents=True)
         self.logs_dir = self.output_dir / "logs"
@@ -68,6 +70,7 @@ class PipelineManager:
                 run_name,
                 run_data,
                 run_pm,
+                self.references_dir,
                 run_dir,
                 self.pangenes,
                 self.references,

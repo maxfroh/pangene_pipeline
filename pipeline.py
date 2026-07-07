@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 import argparse
-
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
+import tomllib
 
 import seaborn as sns
 

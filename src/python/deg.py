@@ -77,17 +77,17 @@ class DEG:
         :param idx_file: The kallisto index file to reference.
         :type idx_file: Path
         """
-        max_p = (self.runm.p, 8)
-        max_workers = min(max_p // 8, len(self.samples))
+        max_p = min(self.runm.p, 8)
+        max_workers = min(self.runm.p // max_p, len(self.samples))
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for sample_name, sample_file in self.samples.items():
                 cmds = [
                     "kallisto",
                     "quant",
                     "-i",
-                    str(refm.dge_dir / idx_file),
+                    str(refm.index_file),
                     "-t",
-                    min(self.runm.p, 8),
+                    max_p,
                     "--single",
                     "-l",
                     self.runm.frag_length_mean,
@@ -150,14 +150,15 @@ class DEG:
         execute(cmds, "Preparing for differential expression analysis with DESeq2.")
         self.logger.info("DESeq2 processing complete!")
 
-    def _get_annotation_file(self, references_dir: Path, refm: str):
-        if refm in self.pangene_references:
-            map_loc = Path("./results/pangenes") / f"{refm}" / "annotation.map"
+    def _get_annotation_file(self, references_dir: Path, ref: str):
+        if ref in self.pangene_references:
+            map_loc = Path("./results/pangenes") / f"{ref}" / "annotation.map"
         else:
-            map_loc = list(Path(references_dir / f"{refm}" / "tmp").glob("*.map"))[0]
+            map_loc = list(Path(references_dir / f"{ref}" / "tmp").glob("*.map"))[0]
         return map_loc
 
     def process_results(self):
+        self.logger.info("Processing results for this run.")
         tables_dir = self.runm.tables_dir
         plots_dir = self.runm.plots_dir
         references_dir = self.runm.references_dir
@@ -169,7 +170,7 @@ class DEG:
             raise NotImplementedError
 
         constructed_refs = list(
-            set(self.pangene_references) - set(self.pangene_references)
+            set(refs) - set(self.pangene_references)
         )
 
         conds_table = pd.read_csv(tables_dir / "column_data.tsv", sep="\t")
@@ -188,9 +189,10 @@ class DEG:
         for ref in refs:
             specific_ref_dge_dir = references_dir / ref / "dge"
             map_files[ref] = pd.read_csv(
-                self._get_annotation_file(ref), sep="\t"
+                self._get_annotation_file(references_dir, ref), sep="\t"
             ).drop_duplicates()
 
+        self.logger.info("Building a map file for all references.")
         combined_map: pd.DataFrame = None
         for p_ref in self.pangene_references:
             p_map = map_files[p_ref].set_index("original_transcript_id")
@@ -201,9 +203,11 @@ class DEG:
                 ],
                 how="left",
             )
+        combined_map.to_csv(tables_dir / "combined_map.map", sep="\t")
+        self.logger.info("Map file built successfully!")
 
+        self.logger.info("Filtering using provided alpha and l2FC threshold.")
         filtered_degs = {}
-
         for ref in refs:
             # get abundance and padj info
             specific_ref_dge_dir = references_dir / ref / "dge"
@@ -235,7 +239,7 @@ class DEG:
             # filter by p and l2FC thresholds
             filtered_df = combined_df[
                 (combined_df["padj"] < self.runm.alpha)
-                & (combined_df[l2fc_names].abs() >= self.runm.l2fc_thresh).any(axis=1)
+                & (combined_df[l2fc_names].abs() >= self.runm.l2FC_thresh).any(axis=1)
             ]
             for name in l2fc_names:
                 filtered_df[f"{name}_upreg"] = filtered_df[name] > 0
@@ -251,14 +255,22 @@ class DEG:
                 filtered_df = filtered_df.reset_index().set_index("OGID")
                 reduced_df = reduced_df.join(curr_ref_map)
                 reduced_df = reduced_df.reset_index().set_index("OGID")
-                reduced_df.to_csv(tables_dir / ref / "deg_results.tsv", sep="\t")
+                ref_dir_in_tables_dir = tables_dir / ref
+                ref_dir_in_tables_dir.mkdir(exist_ok=True, parents=True)
+                reduced_df.to_csv(ref_dir_in_tables_dir / "deg_results.tsv", sep="\t")
 
             filtered_degs[ref] = filtered_df
+        self.logger.info("Results filtered successfully!")
 
-        fig, ax = plt.subplots(1, 1)
+        self.logger.info("Creating an Euler Diagram for this run.")
+        fig, ax = plt.subplots(1, 1, layout="constrained")
         EulerDiagram.from_sets(
             sets=[set(df.index) for df in filtered_degs.values()],
             set_labels=filtered_degs.keys(),
             ax=ax,
         )
+        fig.suptitle(f"DEGs Detected by Each Reference\n(padj < {self.runm.alpha}; absolute l2FC $\\geq$ {self.runm.l2FC_thresh})")
         fig.savefig(plots_dir / f"{self.runm.run}_venn.png", dpi=600)
+        self.logger.info("Euler Diagram created successfully!")
+        
+        self.logger.info("Results for this run processed successfully!")

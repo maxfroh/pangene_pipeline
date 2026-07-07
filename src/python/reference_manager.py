@@ -102,29 +102,29 @@ class ReferenceManager:
 
     def _get_index_file(self):
         index_dir = self.index_file_dir / self.reference
+        index_dir.mkdir(exist_ok=True, parents=True)
         index_file = f"{self.reference}.idx"
         if not (index_dir / index_file).exists():
             self.logger.info("Index file not yet built for this reference.")
-            self._build_kallisto_index(index_file)
+            self._build_kallisto_index(index_dir, index_file)
         return index_dir / index_file
 
-    def _build_kallisto_index(self, index_file: str) -> Path:
+    def _build_kallisto_index(self, index_dir: Path, index_file: str) -> Path:
         """
         Builds a kallisto index file.
 
         :return: The location of the index file.
         :rtype: Path
         """
-        # return idx_file # FLAG
         cmds = [
             "kallisto",
             "index",
             "-i",
-            self.index_file_dir / index_file,
+            index_dir / index_file,
             "-T",
             self.tmp_dir,
             "-t",
-            min(self.runm.p, 8),
+            min(self.pm.p, 8),
             self.cds_fasta,
         ]
         self.logger.debug(cmds)
