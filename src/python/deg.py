@@ -39,7 +39,7 @@ class DEG:
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
         for refm in refms:
-            self.perform_individual_de_analysis(refm)
+            # self.perform_individual_de_analysis(refm)
             pass
         self.process_results()
 
@@ -255,9 +255,9 @@ class DEG:
                 filtered_df = filtered_df.reset_index().set_index("OGID")
                 reduced_df = reduced_df.join(curr_ref_map)
                 reduced_df = reduced_df.reset_index().set_index("OGID")
-                ref_dir_in_tables_dir = tables_dir / ref
-                ref_dir_in_tables_dir.mkdir(exist_ok=True, parents=True)
-                reduced_df.to_csv(ref_dir_in_tables_dir / "deg_results.tsv", sep="\t")
+            ref_dir_in_tables_dir = tables_dir / ref
+            ref_dir_in_tables_dir.mkdir(exist_ok=True, parents=True)
+            reduced_df.to_csv(ref_dir_in_tables_dir / "deg_results.tsv", sep="\t")
 
             filtered_degs[ref] = filtered_df
         self.logger.info("Results filtered successfully!")
