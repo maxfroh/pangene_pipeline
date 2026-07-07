@@ -262,5 +262,6 @@ class FixedUpSet(UpSet):
         if not self._horizontal:
             ax.yaxis.set_ticks_position("top")
         ax.set_frame_on(False)
-        ax.set_xlim(-0.5, x[-1] + 0.5, auto=False)
+        ax.set_xlim(-0.5, x[-1] + 0.5)
+        ax.set_autoscale_on(False)
         ax.grid(False)

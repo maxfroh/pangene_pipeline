@@ -224,14 +224,14 @@ class DEG:
                 c1_avg = abundance_df[condition_to_samples_map[c1]].mean(axis=1)
                 c2_avg = abundance_df[condition_to_samples_map[c2]].mean(axis=1)
                 abundance_df[name] = np.log2((c2_avg + epsilon) / (c1_avg + epsilon))
-            l2fc_names = [name for c1, c2, name in condition_pairs]
+            l2FC_names = [name for c1, c2, name in condition_pairs]
             combined_df = abundance_df.join(deseq_df, how="outer")
 
             # saving just reduced info
-            reduced_df = combined_df[["padj", *l2fc_names]]
-            reduced_df["noDE"] = reduced_df["padj"] < self.runm.alpha
+            reduced_df = combined_df[["padj", *l2FC_names]]
+            reduced_df["noDE"] = ~((reduced_df["padj"] < self.runm.alpha) & (reduced_df[l2FC_names].abs() >= self.runm.l2FC_thresh).any(axis=1))
             reduced_df = reduced_df.drop(columns=["padj"])
-            for name in l2fc_names:
+            for name in l2FC_names:
                 reduced_df[f"{name}_upreg"] = reduced_df[name] > 0
                 reduced_df[f"{name}_downreg"] = reduced_df[name] < 0
                 reduced_df = reduced_df.drop(columns=[name])
@@ -239,9 +239,9 @@ class DEG:
             # filter by p and l2FC thresholds
             filtered_df = combined_df[
                 (combined_df["padj"] < self.runm.alpha)
-                & (combined_df[l2fc_names].abs() >= self.runm.l2FC_thresh).any(axis=1)
+                & (combined_df[l2FC_names].abs() >= self.runm.l2FC_thresh).any(axis=1)
             ]
-            for name in l2fc_names:
+            for name in l2FC_names:
                 filtered_df[f"{name}_upreg"] = filtered_df[name] > 0
                 filtered_df[f"{name}_downreg"] = filtered_df[name] > 0
             if ref not in self.pangene_references:
