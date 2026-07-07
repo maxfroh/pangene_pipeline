@@ -21,6 +21,7 @@ class ReferenceManager:
     reference: str
     pm: ParamManager
     reference_dir: Path
+    index_file_dir: Path
     annotation_file: Path
     cds_fasta: Path
     log_dir: Path
@@ -29,6 +30,7 @@ class ReferenceManager:
     err_file: Path = field(init=False)
     tmp_dir: Path = field(init=False)
     dge_dir: Path = field(init=False)
+    index_file: Path = field(init=False)
 
     def __post_init__(self):
         self.logger = build_logger(f"{str(self)}")
@@ -42,6 +44,7 @@ class ReferenceManager:
         self.out_file = self.log_dir / f"{self.reference}.out"
         self.err_file = self.log_dir / f"{self.reference}.err"
         self.annotation_file = self.prepare_annotation_file(Path(self.annotation_file))
+        self.index_file = self._get_index_file()
 
     def prepare_annotation_file(self, annotation_file: Path) -> Path:
         """
@@ -96,6 +99,37 @@ class ReferenceManager:
             gtf.to_csv(annotation_file, sep="\t", index=False)
 
         return Path(annotation_file)
+
+    def _get_index_file(self):
+        index_dir = self.index_file_dir / self.reference
+        index_file = f"{self.reference}.idx"
+        if not (index_dir / index_file).exists():
+            self.logger.info("Index file not yet built for this reference.")
+            self._build_kallisto_index(index_file)
+        return index_dir / index_file
+
+    def _build_kallisto_index(self, index_file: str) -> Path:
+        """
+        Builds a kallisto index file.
+
+        :return: The location of the index file.
+        :rtype: Path
+        """
+        # return idx_file # FLAG
+        cmds = [
+            "kallisto",
+            "index",
+            "-i",
+            self.index_file_dir / index_file,
+            "-T",
+            self.tmp_dir,
+            "-t",
+            min(self.runm.p, 8),
+            self.cds_fasta,
+        ]
+        self.logger.debug(cmds)
+        execute(cmds, f"Building kallisto index file for {self}.")
+        self.logger.info("Kallisto index file built successfully!")
 
     def __str__(self) -> str:
         return f"ReferenceManager {self.run}::{self.reference}"

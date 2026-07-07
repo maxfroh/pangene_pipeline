@@ -6,6 +6,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import pandas as pd
+from upsetplot import UpSet
+
 default_logger = logging.Logger("Pipeline", level=logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -155,3 +159,108 @@ def get_name_ext_and_is_gzip(file: str | Path) -> tuple[str, str, bool]:
         return name, ext2, True
     else:
         return name, ext, False
+
+
+# OVERRIDE!
+class FixedUpSet(UpSet):
+    def plot_matrix(self, ax):
+        """Plot the matrix of intersection indicators onto ax"""
+        ax = self._reorient(ax)
+        data = self.intersections
+        n_cats = data.index.nlevels
+
+        inclusion = data.index.to_frame().values
+
+        # Prepare styling
+        styles = [
+            [
+                (
+                    self.subset_styles[i]
+                    if inclusion[i, j]
+                    else {"facecolor": self._other_dots_color, "linewidth": 0}
+                )
+                for j in range(n_cats)
+            ]
+            for i in range(len(data))
+        ]
+        styles = sum(styles, [])  # flatten nested list
+        style_columns = {
+            "facecolor": "facecolors",
+            "edgecolor": "edgecolors",
+            "linewidth": "linewidths",
+            "linestyle": "linestyles",
+            "hatch": "hatch",
+        }
+        styles = (
+            pd.DataFrame(styles)
+            .reindex(columns=style_columns.keys())
+            .astype(
+                {
+                    "facecolor": "O",
+                    "edgecolor": "O",
+                    "linewidth": float,
+                    "linestyle": "O",
+                    "hatch": "O",
+                }
+            )
+        )
+        styles["linewidth"] = styles["linewidth"].fillna(1)
+        styles["facecolor"] = styles["facecolor"].fillna(self._facecolor)
+        styles["edgecolor"] = styles["edgecolor"].fillna(styles["facecolor"])
+        styles["linestyle"] = styles["linestyle"].fillna("solid")
+        del styles["hatch"]  # not supported in matrix (currently)
+
+        x = np.repeat(np.arange(len(data)), n_cats)
+        y = np.tile(np.arange(n_cats), len(data))
+
+        # Plot dots
+        if self._element_size is not None:  # noqa
+            s = (self._element_size * 0.35) ** 2
+        else:
+            # TODO: make s relative to colw
+            s = 200
+        ax.scatter(
+            *self._swapaxes(x, y),
+            s=s,
+            zorder=10,
+            **styles.rename(columns=style_columns),
+        )
+
+        # Plot lines
+        if self._with_lines:
+            idx = np.flatnonzero(inclusion)
+            line_data = (
+                pd.Series(y[idx], index=x[idx])
+                .groupby(level=0)
+                .aggregate(["min", "max"])
+            )
+            colors = pd.Series(
+                [
+                    style.get("edgecolor", style.get("facecolor", self._facecolor))
+                    for style in self.subset_styles
+                ],
+                name="color",
+            )
+            line_data = line_data.join(colors)
+            ax.vlines(
+                line_data.index.values,
+                line_data["min"],
+                line_data["max"],
+                lw=2,
+                colors=line_data["color"],
+                zorder=5,
+            )
+
+        # Ticks and axes
+        tick_axis = ax.yaxis
+        tick_axis.set_ticks(np.arange(n_cats))
+        tick_axis.set_ticklabels(
+            data.index.names, rotation=0 if self._horizontal else -90
+        )
+        ax.xaxis.set_visible(False)
+        ax.tick_params(axis="both", which="both", length=0)
+        if not self._horizontal:
+            ax.yaxis.set_ticks_position("top")
+        ax.set_frame_on(False)
+        ax.set_xlim(-0.5, x[-1] + 0.5, auto=False)
+        ax.grid(False)

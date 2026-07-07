@@ -3,45 +3,48 @@
 # TODO:
 * hashing for reuse of references/kallisto/deseq results? -- may be more trouble than it's worth
 
-## Current organization:
+## Current file organization:
 ```txt
 .
 ├── logs
-│   ├── other.err
-│   └── other.out
 ├── pangenes
 │   └── pangene1
-│       ├── plots
-│       │   └── reduced_vs_full_counts.png
-│       ├── reduced_cds.fa.gz
-│       ├── reduced_cds.reduced_map
-│       ├── synOG.grp
-│       └── synOG.grp.melt
+│       ├── annotation.map
+│       ├── pangene1_cds.fa.gz
+│       └── plots
+│           ├── original_count_hist.png
+│           ├── pruned_count_hist.png
+│           └── reduction_comparison.png
+├── references
+│   ├── reference1
+│   │   └── reference1.idx
+│   └── reference2
+│       └── reference2.idx
 └── runs
     └── run1
         ├── logs
-        │   ├── ref1.err
-        │   ├── ref1.out
-        │   ├── ref2.err
-        │   ├── ref2.out
-        │   ├── run1.err
-        │   └── run1.out
         ├── plots
-        │   └── venn.png
+        │   └── run1_venn.png
         ├── references
-        │   ├── ref1
-        │   │   ├── deseq
-        │   │   ├── kallisto
-        │   │   └── tmp
-        │   └── ref2
-        │       ├── deseq
-        │       ├── kallisto
+        │   └── ref1
+        │       ├── deg
+        │       │   ├── abundance_ref1.tsv
+        │       │   ├── counts_ref1.tsv
+        │       │   ├── deseq_results_ref1.tsv
+        │       │   ├── s1r1
+        │       │   └── s2r1
         │       └── tmp
         └── tables
-            └── all_de_results_aligned.tsv
+            ├── column_data.tsv
+            ├── combined_map.map
+            ├── ref1
+            │   └── deg_results.tsv
+            └── ref2
+                └── deg_results.tsv
 ```
 
 
+<!--
 this is wrong!
 
 ```mermaid
@@ -133,3 +136,4 @@ classDiagram
     ReferenceManager ..|> PangeneConstructor : can be created from
 
 ```
+--> 

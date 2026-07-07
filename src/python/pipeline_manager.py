@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 from typing import TypedDict
 
+from .full_pipeline_analysis import FullPipelineAnalyzer
 from .pangene_constructor import PangeneConstructor
 from .param_manager import ParamManager
 from .run_manager import RunManager
@@ -73,3 +74,5 @@ class PipelineManager:
             )
 
             curr_run.perform_de_analysis()
+
+        fpa = FullPipelineAnalyzer()

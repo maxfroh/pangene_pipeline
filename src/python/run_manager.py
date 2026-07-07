@@ -21,6 +21,7 @@ class RunManager:
     run: str
     run_data: dict[str, dict[str, list[str]] | list[str]]
     pm: ParamManager
+    pipeline_ref_dir: Path
     run_dir: Path
     pangene_dict: dict[str, PangeneConstructor]
     reference_dict: dict[str, tuple[Path, Path]]
@@ -65,6 +66,7 @@ class RunManager:
                 reference,
                 self.pm,
                 self.references_dir,
+                self.pipeline_ref_dir,
                 annotation_file,
                 cds_fasta,
                 self.logs_dir,

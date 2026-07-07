@@ -6,7 +6,8 @@ import resource  # TODO: increase ulimit
 import shutil
 import subprocess
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor,
+                                as_completed)
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 

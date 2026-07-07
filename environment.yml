@@ -1,0 +1,16 @@
+name: pangene_pipeline
+channels:
+  - defaults
+dependencies:
+  - python=3.13 # ?
+  - numpy
+  - pandas
+  - matplotlib
+  - seaborn
+  - scipy
+  - tqdm
+  - pip:
+    - pyfaidx
+    - matplotlib_set_diagrams
+    - tomli
+    - upsetplot 

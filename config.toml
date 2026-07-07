@@ -35,7 +35,7 @@ annotation_file = "../sra_data/base4/XG0486/XG0486.gff3.gz"
 cds_fasta = "../sra_data/base4/XG0486/XG0486_cds.fa.gz"
 
 [run]
-[run.10DAPtest]
+[run.10DAP]
 use = {"pangene" = ["Pangene"], "reference" = ["Cultivated", "Wild"]} # which references to use
 conditions = ["S1G1T1P10D", "S1G2T1P10D"]
 sample_dir = "data/samples"
@@ -46,32 +46,35 @@ samples = [
     "S1G2T1P10D_Rep2_RS.fq.gz",
 ]
 
-# [runs.10DAP]
-# annotations = {Cultivated = "", Wild = "", Pangene = ""}
-# references = {Cultivated = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz", Wild = "../sra_data/base4/XG0486/XG0486_cds.fa.gz", Pangene = ""}
-# conditions = ["S1G1T1P10D", "S1G2T1P10D"]
-# samples = [
-#     "S1G1T1P10D_Rep1_RS.fq.gz",
-#     "S1G1T1P10D_Rep2_RS.fq.gz",
-#     "S1G2T1P10D_Rep1_RS.fq.gz",
-#     "S1G2T1P10D_Rep2_RS.fq.gz",
-# ]
+[run.18DAP]
+use = {"pangene" = ["Pangene"], "reference" = ["Cultivated", "Wild"]} # which references to use
+conditions = ["S1G1T1P18D", "S1G2T1P18D"]
+sample_dir = "data/samples"
+samples = [
+    "S1G1T1P18D_Rep1_RS.fq.gz",
+    "S1G1T1P18D_Rep2_RS.fq.gz",
+    "S1G2T1P18D_Rep1_RS.fq.gz",
+    "S1G2T1P18D_Rep2_RS.fq.gz",
+]
 
-# 18DAP = [
-#     "S1G1T1P18D_Rep1_RS.fq.gz",
-#     "S1G1T1P18D_Rep2_RS.fq.gz",
-#     "S1G2T1P18D_Rep1_RS.fq.gz",
-#     "S1G2T1P18D_Rep2_RS.fq.gz",
-# ]
-# 26DAP = [
-#     "S1G1T1P26D_Rep1_RS.fq.gz",
-#     "S1G1T1P26D_Rep2_RS.fq.gz",
-#     "S1G2T1P26D_Rep1_RS.fq.gz",
-#     "S1G2T1P26D_Rep2_RS.fq.gz",
-# ]
-# 34DAP = [
-#     "S1G1T1P34D_Rep1_RS.fq.gz",
-#     "S1G1T1P34D_Rep2_RS.fq.gz",
-#     "S1G2T1P34D_Rep1_RS.fq.gz",
-#     "S1G2T1P34D_Rep2_RS.fq.gz",
-# ]
+[run.26DAP]
+use = {"pangene" = ["Pangene"], "reference" = ["Cultivated", "Wild"]} # which references to use
+conditions = ["S1G1T1P26D", "S1G2T1P26D"]
+sample_dir = "data/samples"
+samples = [
+    "S1G1T1P26D_Rep1_RS.fq.gz",
+    "S1G1T1P26D_Rep2_RS.fq.gz",
+    "S1G2T1P26D_Rep1_RS.fq.gz",
+    "S1G2T1P26D_Rep2_RS.fq.gz",
+]
+
+[run.34DAP]
+use = {"pangene" = ["Pangene"], "reference" = ["Cultivated", "Wild"]} # which references to use
+conditions = ["S1G1T1P34D", "S1G2T1P34D"]
+sample_dir = "data/samples"
+samples = [
+    "S1G1T1P34D_Rep1_RS.fq.gz",
+    "S1G1T1P34D_Rep2_RS.fq.gz",
+    "S1G2T1P34D_Rep1_RS.fq.gz",
+    "S1G2T1P34D_Rep2_RS.fq.gz",
+]
