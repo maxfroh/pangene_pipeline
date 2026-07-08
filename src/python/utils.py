@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from upsetplot import UpSet
+from upsetplot import UpSet, util
 
 default_logger = logging.Logger("Pipeline", level=logging.DEBUG)
 handler = logging.StreamHandler(sys.stdout)
@@ -265,3 +265,72 @@ class FixedUpSet(UpSet):
         ax.set_xlim(-0.5, x[-1] + 0.5)
         ax.set_autoscale_on(False)
         ax.grid(False)
+
+    def _label_sizes(self, ax, rects, where):
+        if not self._show_counts and not self._show_percentages:
+            return
+        if self._show_counts is True:
+            count_fmt = "{:.0f}"
+        else:
+            count_fmt = self._show_counts
+            if "{" not in count_fmt:
+                count_fmt = util.to_new_pos_format(count_fmt)
+
+        pct_fmt = "{:.1%}" if self._show_percentages is True else self._show_percentages
+
+        if count_fmt and pct_fmt:
+            if where == "top":
+                fmt = f"{count_fmt}\n({pct_fmt})"
+            else:
+                fmt = f"{count_fmt} ({pct_fmt})"
+
+            def make_args(val):
+                return val, val / self.total
+
+        elif count_fmt:
+            fmt = count_fmt
+
+            def make_args(val):
+                return (val,)
+
+        else:
+            fmt = pct_fmt
+
+            def make_args(val):
+                return (val / self.total,)
+
+        if where == "right":
+            margin = 0.01 * abs(np.diff(ax.get_xlim())[0])
+            for rect in rects:
+                width = rect.get_width() + rect.get_x()
+                ax.text(
+                    width + margin,
+                    rect.get_y() + rect.get_height() * 0.5,
+                    fmt.format(*make_args(width)),
+                    ha="left",
+                    va="center",
+                )
+        elif where == "left":
+            margin = 0.01 * abs(np.diff(ax.get_xlim())[0])
+            for rect in rects:
+                width = rect.get_width() + rect.get_x()
+                ax.text(
+                    width + margin,
+                    rect.get_y() + rect.get_height() * 0.5,
+                    fmt.format(*make_args(width)),
+                    ha="right",
+                    va="center",
+                )
+        elif where == "top":
+            margin = 0.01 * abs(np.diff(ax.get_ylim())[0])
+            for rect in rects:
+                height = rect.get_height() + rect.get_y()
+                ax.text(
+                    rect.get_x() + rect.get_width() * 0.5,
+                    height + margin,
+                    fmt.format(*make_args(height)),
+                    ha="center",
+                    va="bottom",
+                )
+        else:
+            raise NotImplementedError("unhandled where: %r" % where)

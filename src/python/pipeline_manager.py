@@ -75,7 +75,9 @@ class PipelineManager:
                 self.pangenes,
                 self.references,
             )
+            self.runs[run_name] = curr_run
 
             curr_run.perform_de_analysis()
 
-        fpa = FullPipelineAnalyzer()
+        fpa = FullPipelineAnalyzer(self.runs)
+        fpa.analyze_runs()

@@ -19,6 +19,7 @@ import pandas as pd
 import scipy.stats as stats
 import seaborn as sns
 from matplotlib_set_diagrams import EulerDiagram
+from upsetplot import from_contents
 
 from .reference_manager import ReferenceManager
 from .utils import FixedUpSet, build_logger, execute
@@ -157,10 +158,97 @@ class DEG:
             map_loc = list(Path(references_dir / f"{ref}" / "tmp").glob("*.map"))[0]
         return map_loc
 
+    def _plot_results(
+        self,
+        refs: list[str],
+        combined_result: pd.DataFrame,
+        condition_pairs: tuple[str, str, str],
+    ):
+        self.logger.info("Creating an Euler Diagram and Upset Plot for this run.")
+        plots_dir = self.runm.plots_dir
+        euler_results: dict[str, set] = {}
+        upset_results: dict[str, set] = {}
+
+        for _, _, pair in condition_pairs:
+            for ref in refs:
+                euler_results[ref] = set(
+                    combined_result[
+                        combined_result[f"{ref}_{pair}"].isin(["up", "down"])
+                    ]["OGID"]
+                )
+                up_set = set(
+                    combined_result[combined_result[f"{ref}_{pair}"] == "up"]["OGID"]
+                )
+                down_set = set(
+                    combined_result[combined_result[f"{ref}_{pair}"] == "down"]["OGID"]
+                )
+                upset_results[f"{ref}_up"] = up_set - down_set
+                upset_results[f"{ref}_down"] = down_set - up_set
+                upset_results[f"{ref}_mixed"] = up_set & down_set
+
+        fig, ax = plt.subplots(1, 1, layout="constrained")
+        EulerDiagram.from_sets(
+            sets=list(euler_results.values()),
+            set_labels=euler_results.keys(),
+            ax=ax,
+        )
+        fig.suptitle(
+            f"DEGs Captured by Each Reference\n(padj < {self.runm.alpha}; absolute l2FC $\\geq$ {self.runm.l2FC_thresh})"
+        )
+        fig.savefig(plots_dir / f"{self.runm.run}_venn.png", dpi=600)
+        plt.cla()
+        self.logger.info("Euler Diagram created successfully!")
+
+        upset_data = from_contents(upset_results)
+        category_order = sorted(
+            upset_data.index.names,
+            key=lambda s: (
+                s.rsplit("_")[-1],
+                s.removesuffix("_up").removesuffix("_down").removesuffix("_mixed"),
+            ),
+        )
+        upset_data = upset_data.reorder_levels(category_order)
+        threshold = 0.01
+        upset_data = (
+            upset_data.groupby(level=upset_data.index.names)
+            .size()
+            .astype(int)
+            .sort_values(ascending=False)
+        )
+        large_categories = list(
+            upset_data[upset_data / upset_data.sum() > threshold].index
+        )
+        upset_data = upset_data[upset_data.index.isin(large_categories)]
+        levels_to_drop = [
+            index
+            for index in upset_data.index.names
+            if set(upset_data.index.get_level_values(index)) == {False}
+        ]
+        upset_data = upset_data.droplevel(levels_to_drop)
+
+        upset = FixedUpSet(
+            data=upset_data,
+            sort_by="-cardinality",
+            sort_categories_by="input",
+            min_subset_size="1%",
+            show_counts=True,
+            element_size=40,
+        )
+        axes = upset.plot()
+        intersections_ax = axes["intersections"]
+        current_xmin, current_xmax = intersections_ax.get_xlim()
+        intersections_ax.margins(y=0.2)
+        intersections_ax.set_xlim(current_xmin, current_xmax * 1.01)
+        plt.suptitle(
+            f"Intersections of OGID up/downregulation\n(Only subsets with size $\\geq$ {threshold} shown)"
+        )
+        plt.savefig(plots_dir / f"{self.runm.run}_upset.png", dpi=600)
+        plt.cla()
+        self.logger.info("Upset Plot created successfully!")
+
     def process_results(self):
         self.logger.info("Processing results for this run.")
         tables_dir = self.runm.tables_dir
-        plots_dir = self.runm.plots_dir
         references_dir = self.runm.references_dir
         refs = [refm.reference for refm in self.runm.refms]
         map_files: dict[str, pd.DataFrame] = {}
@@ -169,9 +257,7 @@ class DEG:
         if len(self.pangene_references) > 1:
             raise NotImplementedError
 
-        constructed_refs = list(
-            set(refs) - set(self.pangene_references)
-        )
+        constructed_refs = list(set(refs) - set(self.pangene_references))
 
         conds_table = pd.read_csv(tables_dir / "column_data.tsv", sep="\t")
         samples = conds_table["sample"].values
@@ -182,7 +268,7 @@ class DEG:
             ].values[0]
             condition_to_samples_map[condition].append(sample)
         condition_pairs = [
-            (c1, c2, f"{c2}/{c1}")
+            (c1, c2, f"{c2}_{c1}")
             for c1, c2 in combinations(condition_to_samples_map.keys(), 2)
         ]
 
@@ -207,7 +293,8 @@ class DEG:
         self.logger.info("Map file built successfully!")
 
         self.logger.info("Filtering using provided alpha and l2FC threshold.")
-        filtered_degs = {}
+        combined_results: dict[str, pd.DataFrame] = {}
+
         for ref in refs:
             # get abundance and padj info
             specific_ref_dge_dir = references_dir / ref / "dge"
@@ -223,27 +310,27 @@ class DEG:
             for c1, c2, name in condition_pairs:
                 c1_avg = abundance_df[condition_to_samples_map[c1]].mean(axis=1)
                 c2_avg = abundance_df[condition_to_samples_map[c2]].mean(axis=1)
-                abundance_df[name] = np.log2((c2_avg + epsilon) / (c1_avg + epsilon))
+                abundance_df[f"{name}_l2FC"] = np.log2(
+                    (c2_avg + epsilon) / (c1_avg + epsilon)
+                )
             l2FC_names = [name for c1, c2, name in condition_pairs]
             combined_df = abundance_df.join(deseq_df, how="outer")
 
             # saving just reduced info
-            reduced_df = combined_df[["padj", *l2FC_names]]
-            reduced_df["noDE"] = ~((reduced_df["padj"] < self.runm.alpha) & (reduced_df[l2FC_names].abs() >= self.runm.l2FC_thresh).any(axis=1))
-            reduced_df = reduced_df.drop(columns=["padj"])
             for name in l2FC_names:
-                reduced_df[f"{name}_upreg"] = reduced_df[name] > 0
-                reduced_df[f"{name}_downreg"] = reduced_df[name] < 0
-                reduced_df = reduced_df.drop(columns=[name])
-
-            # filter by p and l2FC thresholds
-            filtered_df = combined_df[
-                (combined_df["padj"] < self.runm.alpha)
-                & (combined_df[l2FC_names].abs() >= self.runm.l2FC_thresh).any(axis=1)
+                is_de = (combined_df["padj"] < self.runm.alpha) & (
+                    combined_df[f"{name}_l2FC"].abs() >= self.runm.l2FC_thresh
+                )
+                conditions = [
+                    ~is_de,
+                    (is_de & (combined_df[f"{name}_l2FC"] > 0)),
+                    (is_de & (combined_df[f"{name}_l2FC"] < 0)),
+                ]
+                choices = ["no", "up", "down"]
+                combined_df[name] = np.select(conditions, choices, "no")
+            combined_df = combined_df[
+                ["padj", *[f"{name}_l2FC" for name in l2FC_names], *l2FC_names]
             ]
-            for name in l2FC_names:
-                filtered_df[f"{name}_upreg"] = filtered_df[name] > 0
-                filtered_df[f"{name}_downreg"] = filtered_df[name] > 0
             if ref not in self.pangene_references:
                 # add OGID
                 curr_ref_map = (
@@ -251,26 +338,39 @@ class DEG:
                     .set_index(f"Geneid_{ref}")
                     .rename(columns={"Geneid": "OGID"})["OGID"]
                 )
-                filtered_df = filtered_df.join(curr_ref_map)
-                filtered_df = filtered_df.reset_index().set_index("OGID")
-                reduced_df = reduced_df.join(curr_ref_map)
-                reduced_df = reduced_df.reset_index().set_index("OGID")
-            ref_dir_in_tables_dir = tables_dir / ref
-            ref_dir_in_tables_dir.mkdir(exist_ok=True, parents=True)
-            reduced_df.to_csv(ref_dir_in_tables_dir / "deg_results.tsv", sep="\t")
+                combined_df = combined_df.join(curr_ref_map)
+                combined_df = combined_df.reset_index()
+                # combined_df = combined_df.set_index("OGID", append=True).swaplevel(0, 1)
+            else:
+                combined_df = combined_df.rename_axis("OGID").reset_index()
+            combined_df = combined_df.rename(
+                columns={
+                    c: f"{ref}_{c}"
+                    for c in combined_df.columns
+                    if c not in ["Geneid", "OGID"]
+                }
+            )
+            combined_results[ref] = combined_df
 
-            filtered_degs[ref] = filtered_df
+            def merge_on_indices_dynamic(left, right):
+                if "Geneid" in left.columns and "Geneid" in right.columns:
+                    keys = ["OGID", "Geneid"]
+                else:
+                    keys = ["OGID"]
+                return pd.merge(left, right, on=keys, how="outer")
+
+        combined_result = reduce(merge_on_indices_dynamic, combined_results.values())
+        target_cols = ["OGID", "Geneid"]
+        combined_result = combined_result[
+            target_cols
+            + [col for col in combined_result.columns if col not in target_cols]
+        ]
+        combined_result.to_csv(
+            tables_dir / f"{self.runm.run}_deg_results.tsv", sep="\t"
+        )
+
         self.logger.info("Results filtered successfully!")
 
-        self.logger.info("Creating an Euler Diagram for this run.")
-        fig, ax = plt.subplots(1, 1, layout="constrained")
-        EulerDiagram.from_sets(
-            sets=[set(df.index) for df in filtered_degs.values()],
-            set_labels=filtered_degs.keys(),
-            ax=ax,
-        )
-        fig.suptitle(f"DEGs Detected by Each Reference\n(padj < {self.runm.alpha}; absolute l2FC $\\geq$ {self.runm.l2FC_thresh})")
-        fig.savefig(plots_dir / f"{self.runm.run}_venn.png", dpi=600)
-        self.logger.info("Euler Diagram created successfully!")
-        
+        self._plot_results(refs, combined_result, condition_pairs)
+
         self.logger.info("Results for this run processed successfully!")
