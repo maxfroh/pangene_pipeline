@@ -1,14 +1,16 @@
 name: pangene_pipeline
 channels:
+  - bioconda
   - defaults
 dependencies:
-  - python=3.13 # ?
+  - python=3.13
   - numpy
   - pandas
   - matplotlib
   - seaborn
   - scipy
   - tqdm
+  - orthofinder
   - pip:
     - pyfaidx
     - matplotlib_set_diagrams

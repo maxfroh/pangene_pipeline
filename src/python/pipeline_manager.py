@@ -13,6 +13,7 @@ from .utils import build_logger
 class ConfigDict(TypedDict):
     input: dict[str, str]
     output: dict[str, str]
+    dependencies: dict[str, str]
     cores: dict[str, int | bool]
     parameters: dict[str, int | float]
     pangene: dict[str, dict[str, str | float]]
@@ -45,6 +46,17 @@ class PipelineManager:
         self.runs: dict[str, RunManager] = {}
 
         for pangene_name, pangene_info in config_dict["pangene"].items():
+            try:
+                pangene_info["add_k_vals_pl"] = config_dict["dependencies"][
+                    "add_k_vals_pl"
+                ]
+            except KeyError as ke:
+                key = str(ke).strip("'").strip('"')
+                self.logger.error(
+                    f"Required [dependencies] key {key} is missing from the configuration!"
+                )
+                raise ke
+
             self.pangenes[pangene_name] = PangeneConstructor(
                 pangene_name, self.pangenes_dir, pangene_info, self.pm
             )

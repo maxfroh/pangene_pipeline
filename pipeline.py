@@ -6,6 +6,8 @@ import seaborn as sns
 
 from src.python.pipeline_manager import PipelineManager
 
+# implement shutil.which check for dependencies?
+
 
 def main():
     sns.set_theme()

@@ -6,6 +6,9 @@ results_dir = "results"
 out_file = "out_{run}.txt"
 err_file = "err_{run}.txt"
 
+[dependencies]
+add_k_vals_pl = "../apps/MCScanX-1.0.0/downstream_analyses/add_ka_and_ks_to_collinearity.pl"
+
 [cores]
 p = 8                  # the maximum number of processors to use for an individual task instance
 auto_allocate_processors = true # automatically determine the maximum number of processors available and how many to use
@@ -22,6 +25,8 @@ frag_length_std = 20   # for kallisto quant
 grp_file = "../pangene_test/synOG.grp_melt"
 pangene_fastas_dir = "../sra_data/all/"
 redundancy_thresh = 0.98 # by how much to reduce redunandant genes in the pangene
+max_diff_r = 0.01
+ks_threshold_pairs = [["97103_v3", "XG0526"]] # genomes to use to calculate the median Ks threshold
 
 # Ready for analysis (all preconstructed pangenes and single-reference genomes)
 # If a pangene already exists, it can be placed here! (.reduced_map and .fa.gz)

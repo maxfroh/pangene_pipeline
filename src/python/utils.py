@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+import gzip
 import logging
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -40,6 +42,7 @@ def execute(
     log_err: bool = True,
     path_out: bool = False,
     file_out: bool = False,
+    cwd: Path = None,
     logger: logging.Logger = default_logger,
 ):
     """
@@ -83,9 +86,13 @@ def execute(
     else:
         ferr = subprocess.PIPE
     if stdin is None:
-        result = subprocess.run(cmds, stdout=fout, stderr=ferr, check=True, text=True)
+        result = subprocess.run(
+            cmds, stdout=fout, stderr=ferr, check=True, text=True, cwd=cwd
+        )
     else:
-        result = subprocess.run(cmds, stdin=stdin, stdout=fout, stderr=ferr, check=True)
+        result = subprocess.run(
+            cmds, stdin=stdin, stdout=fout, stderr=ferr, check=True, cwd=cwd
+        )
     try:
         result.check_returncode()
     except Exception as e:
@@ -121,6 +128,22 @@ def execute_quiet(
     except Exception as e:
         print(f"Something went wrong! \n{e}")
         raise e
+
+
+def gunzip_file_quiet(source: Path, dest: Path) -> tuple[bool, str, str] | None:
+    try:
+        with gzip.open(source, mode="rb") as fin:
+            with open(dest, mode="wb") as fout:
+                shutil.copyfileobj(fin, fout)
+    except Exception as e:
+        return False, source, dest
+
+
+def copy_file_quiet(source: Path, dest: Path) -> tuple[bool, str, str] | None:
+    try:
+        shutil.copyfile(source, dest)
+    except Exception as e:
+        return False, source, dest
 
 
 def gunzip(file: str | Path, out_file: Path = None, replace: bool = True):
@@ -161,8 +184,20 @@ def get_name_ext_and_is_gzip(file: str | Path) -> tuple[str, str, bool]:
         return name, ext, False
 
 
+def concat_files(in_files: list[Path], out_file: Path):
+    with open(out_file, mode="wb") as fout:
+        for file in in_files:
+            with open(file, mode="rb") as fin:
+                shutil.copyfileobj(fin, fout)
+
+
 # OVERRIDE!
 class FixedUpSet(UpSet):
+    """
+    The `UpSet` class from the `upsetplot` library with some function overrides
+    to make it compatible with Python 3.13.
+    """
+    
     def plot_matrix(self, ax):
         """Plot the matrix of intersection indicators onto ax"""
         ax = self._reorient(ax)

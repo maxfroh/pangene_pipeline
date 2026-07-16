@@ -4,8 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections import defaultdict
-from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor,
-                                as_completed)
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from concurrent.futures.process import BrokenProcessPool
 from functools import reduce
 from itertools import combinations
