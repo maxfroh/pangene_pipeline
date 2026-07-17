@@ -31,7 +31,7 @@ ks_threshold_pairs = [["97103_v3", "XG0526"]] # genomes to use to calculate the 
 # Ready for analysis (all preconstructed pangenes and single-reference genomes)
 # If a pangene already exists, it can be placed here! (.reduced_map and .fa.gz)
 [reference]
-[reference.Cultivated]
+[reference.Cultivated] # [reference.REFERENCE_NAME]
 annotation_file = "../sra_data/base4/97103_v3/97103_v3.gff3.gz"
 cds_fasta = "../sra_data/base4/97103_v3/97103_v3_cds.fa.gz"
 

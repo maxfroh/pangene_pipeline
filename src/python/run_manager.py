@@ -55,7 +55,7 @@ class RunManager:
         if len(self.pangene_references) > 0:
             for pangene in self.pangene_references:
                 refm_info[pangene] = self.pangene_dict[pangene].get_reference_info()
-                self.pangene_map_file = self.pangene_dict[pangene].grp_file
+                # self.pangene_map_file = self.pangene_dict[pangene].grp_file
         if len(self.constructed_references) > 0:
             for reference in self.constructed_references:
                 refm_info[reference] = self.reference_dict[reference]

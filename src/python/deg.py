@@ -4,7 +4,8 @@ from __future__ import annotations
 import os
 import shutil
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor,
+                                as_completed)
 from concurrent.futures.process import BrokenProcessPool
 from functools import reduce
 from itertools import combinations
@@ -35,7 +36,7 @@ class DEG:
         self.samples = samples
         self.pangene_references = pangene_references
         self.column_data_file = self.runm.tables_dir / "column_data.tsv"
-        self.logger = build_logger(f"DEG for {self.runm}")
+        self.logger = build_logger(f"{self}")
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
         for refm in refms:
@@ -116,7 +117,6 @@ class DEG:
 
     def make_condition_table(self):
         conds = self.runm.conditions
-        print(conds)
         cond_dict = {"sample": [], "condition": []}
         for sample_name in self.samples.keys():
             cond_dict["sample"].append(sample_name)
@@ -267,7 +267,7 @@ class DEG:
             ].values[0]
             condition_to_samples_map[condition].append(sample)
         condition_pairs = [
-            (c1, c2, f"{c2}_{c1}")
+            (c1, c2, f"{c1}_{c2}")
             for c1, c2 in combinations(condition_to_samples_map.keys(), 2)
         ]
 
@@ -308,11 +308,27 @@ class DEG:
             # calculate l2FC for each condition
             for c1, c2, name in condition_pairs:
                 c1_avg = abundance_df[condition_to_samples_map[c1]].mean(axis=1)
+                abundance_df[f"{c1}_mean_TPM"] = c1_avg
                 c2_avg = abundance_df[condition_to_samples_map[c2]].mean(axis=1)
-                abundance_df[f"{name}_l2FC"] = np.log2(
-                    (c2_avg + epsilon) / (c1_avg + epsilon)
+                abundance_df[f"{c2}_mean_TPM"] = c2_avg
+                abundance_df[f"{name}_FC"] = np.where(
+                    c1_avg != 0, c2_avg / c1_avg.replace(0, 1), 0
+                )
+                abundance_df[f"{name}_l2FC"] = np.where(
+                    (c1_avg != 0) | (c2_avg != 0), np.log2((c2_avg / c1_avg.replace(0, 1)).replace(0, 1)), 0
                 )
             l2FC_names = [name for c1, c2, name in condition_pairs]
+            pair_columns = [
+                col
+                for c1, c2, name in condition_pairs
+                for col in (
+                    name,
+                    f"{name}_l2FC",
+                    f"{name}_FC",
+                    f"{c1}_mean_TPM",
+                    f"{c2}_mean_TPM",
+                )
+            ]
             combined_df = abundance_df.join(deseq_df, how="outer")
 
             # saving just reduced info
@@ -327,9 +343,7 @@ class DEG:
                 ]
                 choices = ["no", "up", "down"]
                 combined_df[name] = np.select(conditions, choices, "no")
-            combined_df = combined_df[
-                ["padj", *[f"{name}_l2FC" for name in l2FC_names], *l2FC_names]
-            ]
+            combined_df = combined_df[["padj", *pair_columns]]
             if ref not in self.pangene_references:
                 # add OGID
                 curr_ref_map = (
@@ -364,12 +378,20 @@ class DEG:
             target_cols
             + [col for col in combined_result.columns if col not in target_cols]
         ]
-        combined_result.to_csv(
-            tables_dir / f"{self.runm.run}_deg_results.tsv", sep="\t"
-        )
 
         self.logger.info("Results filtered successfully!")
 
         self._plot_results(refs, combined_result, condition_pairs)
 
+        str_columns = ["Geneid"] + [f"{ref}_{name}" for c1, c2, name in condition_pairs for ref in refs]
+        print(str_columns)
+        # turn NA strings into None to prevent read warnings later on
+        combined_result[str_columns] = combined_result[str_columns].fillna("_MISSING_")
+        combined_result.to_csv(
+            tables_dir / f"{self.runm.run}_deg_results.tsv", sep="\t", index=False
+        )
+
         self.logger.info("Results for this run processed successfully!")
+
+    def __str__(self):
+        return f"DEG Analyzer for {self.runm}"

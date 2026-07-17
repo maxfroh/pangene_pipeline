@@ -20,49 +20,9 @@ $ python pipeline.py --config config.toml
 ## Pipeline
 ```mermaid
 flowchart LR
-    pipeline["`This is the pipeline `"]
+    pipeline["`This *is* the pipeline `"]
     node[s]
     pipeline-->node
-```
-
-## Current file organization:
-```txt
-.
-├── logs
-├── pangenes
-│   └── pangene1
-│       ├── annotation.map
-│       ├── pangene1_cds.fa.gz
-│       └── plots
-│           ├── original_count_hist.png
-│           ├── pruned_count_hist.png
-│           └── reduction_comparison.png
-├── references
-│   ├── reference1
-│   │   └── reference1.idx
-│   └── reference2
-│       └── reference2.idx
-└── runs
-    └── run1
-        ├── logs
-        ├── plots
-        │   └── run1_venn.png
-        ├── references
-        │   └── ref1
-        │       ├── deg
-        │       │   ├── abundance_ref1.tsv
-        │       │   ├── counts_ref1.tsv
-        │       │   ├── deseq_results_ref1.tsv
-        │       │   ├── s1r1
-        │       │   └── s2r1
-        │       └── tmp
-        └── tables
-            ├── column_data.tsv
-            ├── combined_map.map
-            ├── ref1
-            │   └── deg_results.tsv
-            └── ref2
-                └── deg_results.tsv
 ```
 
 

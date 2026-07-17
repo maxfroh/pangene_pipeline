@@ -11,7 +11,8 @@ import string
 import subprocess
 import tempfile
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import (ProcessPoolExecutor, ThreadPoolExecutor,
+                                as_completed)
 from concurrent.futures.process import BrokenProcessPool
 from itertools import combinations, product
 from pathlib import Path
@@ -28,16 +29,9 @@ from pyfaidx import Fasta
 from tqdm import tqdm
 
 from .param_manager import ParamManager
-from .utils import (
-    build_logger,
-    concat_files,
-    copy_file_quiet,
-    execute,
-    execute_quiet,
-    get_name_ext_and_is_gzip,
-    gunzip_file_quiet,
-    strip_filename,
-)
+from .utils import (build_logger, concat_files, copy_file_quiet, execute,
+                    execute_quiet, get_name_ext_and_is_gzip, gunzip_file_quiet,
+                    strip_filename)
 
 
 class PangeneConstructor:
@@ -46,7 +40,7 @@ class PangeneConstructor:
     def __init__(
         self,
         reference: str,
-        pangene_dir: Path,
+        pangenes_dir: Path,
         pangene_info: dict[str, str | float],
         pm: ParamManager,
     ):
@@ -55,8 +49,8 @@ class PangeneConstructor:
 
         :param reference: The name of the pangene reference.
         :type reference: str
-        :param pangene_dir: The directory to store the constructed pangene.
-        :type pangene_dir: Path
+        :param pangenes_dir: The directory to store the constructed pangene.
+        :type pangenes_dir: Path
         :param pangene_info: The dictionary containing all pangene-specific information provided by the user.
         :type pangene_info: dict[str, str | float]
         :param pm: The `ParamManager` object with all pipeline parameters.
@@ -67,8 +61,15 @@ class PangeneConstructor:
         self.constructed = False
         self.logger = build_logger(f"{str(self)}")
 
+        self.pangene_dir = pangenes_dir.resolve() / reference
+        self.pangene_dir.mkdir(exist_ok=True, parents=True)
+        self.tmp_dir = self.pangene_dir / "tmp"
+        self.tmp_dir.mkdir(exist_ok=True, parents=True)
+
         try:
-            self.grp_file = Path(pangene_info["grp_file"])
+            self.grp_file = pangene_info.get("grp_file", None)
+            if self.grp_file:
+                self.grp_file = Path(self.grp_file)
             self.pangene_fastas_dir = Path(pangene_info["pangene_fastas_dir"])
             self.add_k_vals_pl = Path(pangene_info["add_k_vals_pl"])
             self.redunancy_thresh = pangene_info["redundancy_thresh"]
@@ -100,11 +101,6 @@ class PangeneConstructor:
         word_sizes = [4, 5, 6, 7, 8, 9, 10, 11]
         self.word_size = word_sizes[bisect.bisect(threshholds, self.redunancy_thresh)]
 
-        self.pangene_dir = pangene_dir.resolve() / reference
-        self.pangene_dir.mkdir(exist_ok=True, parents=True)
-        self.tmp_dir = self.pangene_dir / "tmp"
-        self.tmp_dir.mkdir(exist_ok=True, parents=True)
-
         self.target_pep_fastas_dir = self.tmp_dir / "pep_fastas"
         self.target_pep_fastas_dir.mkdir(exist_ok=True, parents=True)
         self.target_cds_fastas_dir = self.tmp_dir / "cds_fastas"
@@ -133,28 +129,31 @@ class PangeneConstructor:
         return (self.annotation_file, self.cds_fasta)
 
     def construct_pangene(self):
-        # Get necessary FASTAs (peptide/amino acid and CDS)
-        self.gather_fastas()
-        # Run OrthoFinder
-        og_of_file = self.get_orthologous_groups_with_orthofinder()
-        # Generate MCScanX-compatible GFF files
-        self.prepare_gffs_for_mcscanx()
-        # Generate MCScanX blastp information
-        self.blastp_alignment_and_filtering()
-        # Run MCScanX and add Ks/Ka microsynteny information
-        self.run_mcscanx_and_get_ks()
-        # Filter MCScanX synteny blocks by a calculated Ks value
-        self.calculate_ks_threshold_and_filter()
-        # Use MCScanX microsynteny information to subdivide OrthoFinder groups
-        new_og_file = self.create_new_orthogroups_with_synteny_info(og_of_file)
-        # Turn these subdivisions into new orthologous groups
-        sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
-        # Create a melted orthologous group file
-        self.grp_file = self.melt_orthogroups(sorted_og_df_file)
+        """
+        if self.grp_file is None:
+            # Get necessary FASTAs (peptide/amino acid and CDS)
+            self.gather_fastas()
+            # Run OrthoFinder
+            og_of_file = self.get_orthologous_groups_with_orthofinder()
+            # Generate MCScanX-compatible GFF files
+            self.prepare_gffs_for_mcscanx()
+            # Generate MCScanX blastp information
+            self.blastp_alignment_and_filtering()
+            # Run MCScanX and add Ks/Ka microsynteny information
+            self.run_mcscanx_and_get_ks()
+            # Filter MCScanX synteny blocks by a calculated Ks value
+            self.calculate_ks_threshold_and_filter()
+            # Use MCScanX microsynteny information to subdivide OrthoFinder groups
+            new_og_file = self.create_new_orthogroups_with_synteny_info(og_of_file)
+            # Turn these subdivisions into new orthologous groups
+            sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
+            # Create a melted orthologous group file
+            self.grp_file = self.melt_orthogroups(sorted_og_df_file)
         # Prune redunant genes from the orthogroups
         self.prune_redundancies()
         # Plot the pruning results
         self.plot_count_difference()
+        """
         # Mark that the pangene has been built
         self.constructed = True
         # Housekeeping to save space
@@ -286,7 +285,7 @@ class PangeneConstructor:
             [col for col in orthogroups_combined.columns if col != "OGID"]
         ].replace(", ", ";", regex=True)
         of_og_file = self.tmp_dir / "of_orthogroups.tsv"
-        orthogroups_combined.to_csv(of_og_file, sep="\t")
+        orthogroups_combined.to_csv(of_og_file, sep="\t", index=False)
 
         self.logger.info("OrthoFinder finished successfully!")
         return of_og_file
@@ -756,7 +755,7 @@ class PangeneConstructor:
         Find median Ks values for all syntenic anchor pairs. Then, find the mean median Ks value
         (either auto-calculating and finding the maximum mean or using the user-defined genome pairs)
         and filter syntenic blocks out.
-        The threshold for filtering syntenic blocks is $\mu_{K_s} + 3 * \sigma_{K_s}$.
+        The threshold for filtering syntenic blocks is $\\mu_{K_s} + 3 * \\sigma_{K_s}$.
 
         :param conn: The active connection to the SQLite database.
         :type conn: sqlite3.Connection
@@ -1052,7 +1051,7 @@ class PangeneConstructor:
         )
         max_digits = int(np.ceil(np.log10(new_og_df.index.max())))
         new_og_df["OGID"] = new_og_df.apply(
-            lambda row: f"og{(row.name + 1):0{max_digits}}", axis=1
+            lambda row: f"{self.reference}_og{(row.name + 1):0{max_digits}}", axis=1
         )
 
         num_genomes = len(genome_columns)
@@ -1392,9 +1391,6 @@ class PangeneConstructor:
             )
 
         self.logger.info("One reduced FASTA file created successfully!")
-
-        # For genome in grouped_melt_df.groups.keys():
-        shutil.rmtree(self.tmp_dir)
 
         annotation_df = self.melt_df[["OGID", "mRNA"]]
         annotation_df["original_transcript_id"] = annotation_df["mRNA"]

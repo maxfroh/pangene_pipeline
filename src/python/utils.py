@@ -197,7 +197,7 @@ class FixedUpSet(UpSet):
     The `UpSet` class from the `upsetplot` library with some function overrides
     to make it compatible with Python 3.13.
     """
-    
+
     def plot_matrix(self, ax):
         """Plot the matrix of intersection indicators onto ax"""
         ax = self._reorient(ax)

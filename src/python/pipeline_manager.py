@@ -24,7 +24,7 @@ class ConfigDict(TypedDict):
 class PipelineManager:
     def __init__(self, config_dict: ConfigDict):
         self.config_dict = config_dict
-        self.output_dir = Path(config_dict["output"]["results_dir"])
+        self.output_dir = Path(config_dict["output"]["results_dir"]).resolve()
         # if self.output_dir.exists():
         #     shutil.rmtree(self.output_dir)
         self.output_dir.mkdir(exist_ok=True, parents=True)
@@ -36,11 +36,13 @@ class PipelineManager:
         self.runs_dir.mkdir(exist_ok=True, parents=True)
         self.logs_dir = self.output_dir / "logs"
         self.logs_dir.mkdir(exist_ok=True, parents=True)
+        self.tables_dir = self.output_dir / "tables"
+        self.tables_dir.mkdir(exist_ok=True, parents=True)
         self.logger = build_logger(f"{str(self)}")
 
         params = self.config_dict["cores"] | self.config_dict["parameters"]
         self.pm = ParamManager(**params)
-        print(self.pm)
+
         self.pangenes: dict[str, PangeneConstructor] = {}
         self.references: dict[str, tuple[Path, Path]] = {}
         self.runs: dict[str, RunManager] = {}
@@ -70,8 +72,9 @@ class PipelineManager:
     def setup(self):
         for pc in self.pangenes.values():
             if not pc.constructed:
-                print(f"Making {pc.reference} pangene")
+                self.logger.info(f"Making {pc.reference} pangene.")
                 pc.construct_pangene()
+                self.logger.info(f"{pc.reference} pangene made successfully!")
 
     def run(self):
         for run_name, run_data in self.config_dict["run"].items():
@@ -91,5 +94,5 @@ class PipelineManager:
 
             curr_run.perform_de_analysis()
 
-        fpa = FullPipelineAnalyzer(self.runs)
+        fpa = FullPipelineAnalyzer(self.runs, self.pangenes, self.tables_dir)
         fpa.analyze_runs()
