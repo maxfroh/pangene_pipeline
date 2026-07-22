@@ -62,7 +62,7 @@ class FullPipelineAnalyzer:
         1. A raw gene count matrix for replicates
         2. A TPM matrix for replicates
         """
-        
+        return 
         run_files, reference_files, pangene_run_dict = self._gather_files()
         
         # Aggregate run information

@@ -40,7 +40,7 @@ class DEG:
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
         for refm in refms:
-            # self.perform_individual_de_analysis(refm)
+            self.perform_individual_de_analysis(refm)
             pass
         self.process_results()
 
@@ -152,7 +152,7 @@ class DEG:
 
     def _get_annotation_file(self, references_dir: Path, ref: str):
         if ref in self.pangene_references:
-            map_loc = Path("./results/pangenes") / f"{ref}" / "annotation.map"
+            map_loc, _ = self.runm.pangene_dict[ref].get_reference_info()
         else:
             map_loc = list(Path(references_dir / f"{ref}" / "tmp").glob("*.map"))[0]
         return map_loc

@@ -123,9 +123,19 @@ class PangeneConstructor:
         self.code_pairs = list(combinations(self.species_to_code_map.values(), 2))
 
     def get_reference_info(self) -> tuple[Path, Path]:
+        """
+        Get the necessary reference file information for the pangene of the `PangeneConstructor`. 
+        If no pangene was constructed yet, then construct the pangene (since a valid FASTA will not exist without construction!).
+        
+        :return: The annotation file and CDS FASTA locations
+        :rtype: tuple[Path, Path]
+        """
+        # TODO: Account for a situation in which the pangene *was* constructed and has a FASTA (upon PC init.)
         if not self.constructed:
             self.logger.info(f"Pangene {str(self)} not constructed! Constructing now.")
             self.construct_pangene()
+        # FLAG
+        # return (self.annotation_file, Path("../for_max/filtered_pangene_cds.fa.gz"))
         return (self.annotation_file, self.cds_fasta)
 
     def construct_pangene(self):
@@ -149,11 +159,11 @@ class PangeneConstructor:
             sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
             # Create a melted orthologous group file
             self.grp_file = self.melt_orthogroups(sorted_og_df_file)
-        # Prune redunant genes from the orthogroups
-        self.prune_redundancies()
-        # Plot the pruning results
-        self.plot_count_difference()
         """
+        # # Prune redunant genes from the orthogroups
+        self._prune_redundancies()
+        # # Plot the pruning results
+        self.plot_count_difference()
         # Mark that the pangene has been built
         self.constructed = True
         # Housekeeping to save space
@@ -340,7 +350,7 @@ class PangeneConstructor:
         """
         Prepare all of the original genome GFF files for MCScanX.
         """
-        # Fo not need more workers than number of GFF files
+        # Do not need more workers than number of GFF files
         with ProcessPoolExecutor(
             max_workers=min(self.pm.p, len(self.original_gffs))
         ) as executor:
@@ -1266,6 +1276,150 @@ class PangeneConstructor:
             else:
                 self.logger.error(f"{mRNA} not found in {genome}")
         return local_buffer
+
+    def _prune_redundancies(self):
+        """
+        Prunes redundancies from the pangene orthogroups using CD-HIT.
+        """
+        self.logger.info("Shrinking orthogroups by removing redundancies.")
+        self.melt_df = pd.read_csv(self.grp_file, sep="\t", dtype=str)
+        grouped_melt_df = self.melt_df.groupby("XGAcc")
+        extraction_data: dict[str, list[tuple[str, str]]] = {}
+        for genome in grouped_melt_df.groups.keys():
+            extraction_data[genome] = (
+                grouped_melt_df.get_group(genome)[["OGID", "mRNA"]]
+                .to_records(index=False)
+                .tolist()
+            )
+
+        with ThreadPoolExecutor(max_workers=min(self.pm.p + 4, 32)) as executor:
+            executor.map(
+                self._bgz_genome, [genome for genome in grouped_melt_df.groups.keys()]
+            )
+
+        self.logger.info("Extracting FASTA records.")
+        
+        target_genomes = list(extraction_data.keys())
+
+        global_buffer = defaultdict(list)
+        with ProcessPoolExecutor(max_workers=max(min(16, self.pm.p), len(target_genomes))) as executor:
+            future_to_genome = {
+                executor.submit(
+                    self._extract_data, genome, extraction_data[genome]
+                ): genome
+                for genome in target_genomes
+            }
+            try:
+                for future in tqdm(
+                    as_completed(future_to_genome), total=len(future_to_genome)
+                ):
+                    try:
+                        fasta_data = future.result()
+                        for orthogroup, sequences in fasta_data.items():
+                            global_buffer[orthogroup].extend(sequences)
+                    except BrokenProcessPool:
+                        self.logger.error(
+                            f"A process experienced a critical error while pruning {self.reference}, likely due to too little memory!"
+                        )
+                        raise
+                    except Exception as e:
+                        genome = future_to_genome[future]
+                        self.logger.error(
+                            f"Something went wrong processing {genome} while pruning {self.reference}: {e}"
+                        )
+
+            except (KeyboardInterrupt, SystemExit):
+                for future in future_to_genome:
+                    future.cancel()
+                raise
+
+        self.logger.info("FASTA records extracted successfully!")
+
+        fasta_dir = self.pangene_dir / "fastas"
+        if fasta_dir.exists():
+            shutil.rmtree(fasta_dir)
+        fasta_dir.mkdir(exist_ok=True, parents=True)
+        full_dir = fasta_dir / "full"
+        full_dir.mkdir(exist_ok=True, parents=True)
+        self.reduced_dir = fasta_dir / "reduced"
+        self.reduced_dir.mkdir(exist_ok=True, parents=True)
+
+        self.logger.info("Writing orthologous groups to FASTA files.")
+        self.melt_df.groupby("XGAcc")
+        self.logger.info(len(self.melt_df["OGID"].unique()))
+        valid_ogids = self.melt_df.loc[self.melt_df["XGAcc"].isin(target_genomes), "OGID"].unique()
+        self.logger.info(f"^og, filtered: {len(valid_ogids)}")
+        invalid_ogids = self.melt_df.loc[~self.melt_df["OGID"].isin(valid_ogids), "OGID"]
+        
+        for orthogroup, sequences in global_buffer.items():
+            if orthogroup in valid_ogids:
+                out_fasta_loc = (
+                    full_dir / f"{orthogroup}.fa"
+                )  # TODO: consider sharding later
+                with open(out_fasta_loc, mode="w") as fout:
+                    fout.writelines(sequences)
+        del global_buffer
+        self.logger.info("Orthologous group FASTAs written successfully!")
+
+        self.logger.info("Using CD-HIT to make orthologous groups less redundant.")
+        cmds = {
+            og: [
+                str(cmd)
+                for cmd in [
+                    "cd-hit-est",
+                    "-i",
+                    full_dir / f"{og}.fa",
+                    "-o",
+                    self.reduced_dir / f"{og}.reduced",
+                    "-c",
+                    self.redunancy_thresh,
+                    "-n",
+                    self.word_size,
+                    "-d",
+                    0,
+                ]
+            ]
+            for og in self.melt_df["OGID"].unique()
+        }
+        with ThreadPoolExecutor(max_workers=min(self.pm.p + 4, 32)) as executor:
+            futures = [
+                executor.submit(
+                    execute_quiet,
+                    cmds[og],
+                    stdout=subprocess.DEVNULL,
+                )
+                for og in self.melt_df["OGID"].unique()
+            ]
+            try:
+                for future in tqdm(as_completed(futures), total=len(futures)):
+                    pass
+            except (KeyboardInterrupt, SystemExit):
+                for future in future_to_genome:
+                    future.cancel()
+                raise
+        self.logger.info("Orthologous groups reduced with CD-HIT successfully!")
+
+        self.logger.info("Combining orthologous groups into a single FASTA.")
+        cmds = ["find", str(self.reduced_dir), "-name", "*.reduced"]
+        reduced_files = self.reduced_dir.glob("*.reduced")
+        with gzip.open(self.cds_fasta, mode="wt") as fout:
+            for reduced_file in reduced_files:
+                with open(reduced_file, mode="r", encoding="utf-8") as fin:
+                    shutil.copyfileobj(fin, fout)
+
+        self.logger.info("One reduced FASTA file created successfully!")
+
+        annotation_df = self.melt_df[["OGID", "mRNA"]]
+        annotation_df["original_transcript_id"] = annotation_df["mRNA"]
+        annotation_df["mRNA"] = (
+            annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
+        )
+        annotation_df = annotation_df.rename(
+            columns={"OGID": "Geneid", "mRNA": "transcript_id"}
+        )
+        annotation_df.to_csv(self.annotation_file, sep="\t", index=False)
+        self.logger.info("Gene-to-orthologous group map file created successfully!")
+
 
     def prune_redundancies(self):
         """

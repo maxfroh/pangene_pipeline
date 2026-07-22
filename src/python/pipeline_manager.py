@@ -96,3 +96,6 @@ class PipelineManager:
 
         fpa = FullPipelineAnalyzer(self.runs, self.pangenes, self.tables_dir)
         fpa.analyze_runs()
+
+    def __str__(self):
+        return f"PipelineManager"
