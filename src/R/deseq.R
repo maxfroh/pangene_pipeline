@@ -28,22 +28,10 @@ if (length(args) < 5) {
 
 print(results_file)
 
-# Read in .gtf file and prepare it for use by tximport
-# if (tools::file_ext(annotation_file) == "gtf") {
-#   gtf <- read.csv(annotation_file, sep = "\t", header = FALSE)["V9"]
-#   gtf$V9 <- stringr::str_replace(gtf$V9, ";$", "")
-#   gtf[c("transcript_id", "Geneid")] <- stringr::str_split_fixed(gtf$V9, "; ", 2)
-#   gtf$transcript_id <- stringr::str_replace(gtf$transcript_id, "transcript_id ", "")
-#   gtf$Geneid <- stringr::str_replace(gtf$Geneid, "gene_id ", "")
-# } else if (tools::file_ext(annotation_file) == ".reduced_map") {
-#   gtf <- read.csv(annotation_file, sep = "\t", header = TRUE)
-# } else {
-#   stop("Improper file for transcriptome:gene mapping!")
-# }
 if (tools::file_ext(annotation_file) == "map") {
   tx2gene_map <- read.csv(annotation_file, sep = "\t", header = TRUE)
 } else {
-  stop("Improper file for transcriptome:gene mapping!")
+  stop("Improper file for transcriptome to gene mapping!")
 }
 
 # tx2gene will map transcript_ids to genes
@@ -56,6 +44,7 @@ files <- file.path(dge_dir, samples, "abundance.tsv")
 names(files) <- samples
 
 # tximport
+print("Using tximport to convert transcript-level results to gene-level.")
 txi <- tximport::tximport(files, type = "kallisto", tx2gene = tx2gene, ignoreAfterBar = TRUE, countsFromAbundance = "no")
 
 counts_data <- as.data.frame(txi$counts)
@@ -67,6 +56,7 @@ abundance_data <- abundance_data %>% dplyr::relocate("Geneid")
 
 readr::write_tsv(counts_data, file=counts_file)
 readr::write_tsv(abundance_data, file=abundance_file)
+print("Successfully ran tximport!")
 
 # get conditions so DESeq can group
 colData <- read.csv(column_data_file, sep="\t", row.names=1)
@@ -74,7 +64,7 @@ colData$condition <- factor(colData$condition)
 
 dds <- DESeq2::DESeqDataSetFromTximport(txi = txi, colData = colData, design = ~condition)
 
-print("Performing DESeq")
+print("Usign DESeq to calculate false discovery rate for differential expression analysis.")
 dds <- DESeq2::DESeq(dds)
 # resultsNames(dds)
 res <- results(dds, independentFiltering=FALSE)
@@ -84,6 +74,6 @@ resTrunc <- res[, c("Geneid", "padj")]
 
 # Write truncated results
 readr::write_tsv(as.data.frame(resTrunc), file=results_file)
-
+print("Ran DESeq2 successfully!")
 # summary(res)
 

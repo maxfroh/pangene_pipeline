@@ -134,12 +134,9 @@ class PangeneConstructor:
         if not self.constructed:
             self.logger.info(f"Pangene {str(self)} not constructed! Constructing now.")
             self.construct_pangene()
-        # FLAG
-        # return (self.annotation_file, Path("../for_max/filtered_pangene_cds.fa.gz"))
         return (self.annotation_file, self.cds_fasta)
 
     def construct_pangene(self):
-        """
         if self.grp_file is None:
             # Get necessary FASTAs (peptide/amino acid and CDS)
             self.gather_fastas()
@@ -159,7 +156,6 @@ class PangeneConstructor:
             sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
             # Create a melted orthologous group file
             self.grp_file = self.melt_orthogroups(sorted_og_df_file)
-        """
         # # Prune redunant genes from the orthogroups
         self._prune_redundancies()
         # # Plot the pruning results

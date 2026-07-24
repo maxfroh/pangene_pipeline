@@ -1,18 +1,44 @@
 name: pangene_pipeline
 channels:
+  - conda-forge
   - bioconda
   - defaults
+channel_priority: strict
 dependencies:
-  - python=3.13
-  - numpy
-  - pandas
-  - matplotlib
-  - seaborn
-  - scipy
-  - tqdm
-  - orthofinder
+  # core
+  - python=3.13.*
+  - r-base=4.5.3
+
+  # python libraries
+  - gffutils=0.14
+  - matplotlib=3.10.9
+  - numpy=2.4.*
+  - pandas=3.0.*
+  - pyfaidx=0.9.0.4
+  - python-igraph=1.0.0
+  - scipy=1.17.1
+  - seaborn=0.13.2
+  - tqdm=4.67.3
+  - upsetplot=0.9.0
+
+  # R libraries
+  - bioconductor-deseq2=1.50.2
+  - bioconductor-tximport=1.38.2
+  - r-biocmanager=1.30.27
+  - r-dplyr=1.2.1
+  - r-readr=2.2.0
+  - r-stringr=1.6.0
+
+  # external tools
+  - blast=2.17
+  - cd-hit=4.8.1
+  - gffread=0.12.9
+  - kallisto=0.52.0
+  - mcscanx=1.0.0
+  - orthofinder=3.1.5
+  - samtools=1.23.1
+
+  # pip packages
+  - pip
   - pip:
-    - pyfaidx
-    - matplotlib_set_diagrams
-    - tomli
-    - upsetplot 
+    - matplotlib_set_diagrams=0.2.2

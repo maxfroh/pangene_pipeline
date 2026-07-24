@@ -45,31 +45,9 @@ class DEG:
         self.process_results()
 
     def perform_individual_de_analysis(self, refm: ReferenceManager):
-        # self.clean_reads(refm, "", "") ?
         self.run_kallisto(refm)
         self.make_condition_table()
         self.run_deseq(refm)
-
-    def clean_reads(self, refm: ReferenceManager, fq_in: Path, fq_out: Path):
-        for i in range(len(self.samples)):
-            cmds = [
-                "java",
-                "-jar",
-                "trimmomatic-0.40.jar",
-                "SE",
-                "-threads",
-                self.runm.p,
-                fq_in,
-                fq_out,
-                "ILLUMINACLIP:TruSeq3-SE.fa:2:30:10",
-                "LEADING:3",
-                "TRAILING:3",
-                "SLIDINGWINDOW:4:15",
-                "MINLEN:36",
-            ]
-            # self.mgr.update_sample_name(i, fq_out)
-            execute(cmds, f"Trimming reads for {fq_in}.")
-        self.logger.info("Reads trimmed successfully!")
 
     def kallisto_quantify(self, refm: ReferenceManager, idx_file: Path):
         """
