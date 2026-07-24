@@ -42,4 +42,4 @@ dependencies:
   # pip packages
   - pip
   - pip:
-    - matplotlib_set_diagrams=0.2.2
+    - matplotlib_set_diagrams==0.2.2
