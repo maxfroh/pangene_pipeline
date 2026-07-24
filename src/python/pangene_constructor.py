@@ -63,7 +63,7 @@ class PangeneConstructor:
 
         self.pangene_dir = pangenes_dir.resolve() / reference
         self.pangene_dir.mkdir(exist_ok=True, parents=True)
-        self.tmp_dir = self.pangene_dir / "tmp"
+        self.tmp_dir = pangenes_dir / "shared"
         self.tmp_dir.mkdir(exist_ok=True, parents=True)
 
         try:
@@ -71,7 +71,6 @@ class PangeneConstructor:
             if self.grp_file:
                 self.grp_file = Path(self.grp_file)
             self.pangene_fastas_dir = Path(pangene_info["pangene_fastas_dir"])
-            self.add_k_vals_pl = Path(pangene_info["add_k_vals_pl"])
             self.redunancy_thresh = pangene_info["redundancy_thresh"]
             self.max_diff_r = pangene_info.get("max_diff_r", 0.001)
             ks_threshold_pairs = pangene_info.get("ks_threshold_pairs", [])
@@ -106,21 +105,33 @@ class PangeneConstructor:
         self.target_cds_fastas_dir = self.tmp_dir / "cds_fastas"
         self.target_cds_fastas_dir.mkdir(exist_ok=True, parents=True)
         self.original_gffs = list(self.pangene_fastas_dir.glob("*/*.gff3*"))
-        self.gffs_dir = self.tmp_dir / "gffs"
+        self.gffs_dir = self.tmp_dir / "gffs" # move up?
         self.gffs_dir.mkdir(exist_ok=True, parents=True)
-        self.mcscanx_dir = self.tmp_dir / "mcscanx_dir"
+        self.mcscanx_dir = self.tmp_dir / "mcscanx_dir" # move up?
         self.mcscanx_dir.mkdir(exist_ok=True, parents=True)
-        self.blastps_dir = self.tmp_dir / "blastps"
+        self.blastps_dir = self.tmp_dir / "blastps" # move up?
         self.blastps_dir.mkdir(exist_ok=True, parents=True)
-        self.pangene_db = self.tmp_dir / f"{self.reference}.db"
+        self.pangene_db = self.tmp_dir / f"{self.reference}.db" # move up?
 
         self.plots_dir = self.pangene_dir / "plots"
         self.plots_dir.mkdir(exist_ok=True, parents=True)
 
-        codes = [a + b for a, b in product(string.ascii_lowercase, repeat=2)]
-        species = [d.name for d in self.pangene_fastas_dir.iterdir() if d.is_dir()]
+        
+        self.species_to_code_map_file = self.tmp_dir / "map.txt"
+        self.species_to_code_map = {species: code for line in self.species_to_code_map_file.open().readlines() for species, code in line.strip().split("\t")}
+        
+        codes = [c for c in [a + b + c for a, b, c in product(string.ascii_lowercase, repeat=3)] if c not in self.species_to_code_map.values()]
+        species = [s for s in [d.name for d in self.pangene_fastas_dir.iterdir() if d.is_dir()] if s not in self.species_to_code_map.keys()]
         self.species_to_code_map = {species[i]: codes[i] for i in range(len(species))}
         self.code_pairs = list(combinations(self.species_to_code_map.values(), 2))
+                
+        self.pair_list_file = self.tmp_dir / "pairs.txt"
+        if self.pair_list_file.exists():
+            self.preexisting_pairs = [(a, b) for line in self.pair_list_file.open().readlines() for a, b in line.strip().split("\t")]
+        else:
+            self.preexisting_pairs = []
+            
+        self.unprocessed_pairs = [p for p in self.code_pairs if p not in self.preexisting_pairs]
 
     def get_reference_info(self) -> tuple[Path, Path]:
         """
@@ -135,6 +146,18 @@ class PangeneConstructor:
             self.logger.info(f"Pangene {str(self)} not constructed! Constructing now.")
             self.construct_pangene()
         return (self.annotation_file, self.cds_fasta)
+
+    def _update_maps(self):
+        """
+        Update the mapping files for future reference.
+        """
+        with self.species_to_code_map_file.open(mode="w") as f:
+            for species, code in self.species_to_code_map.items():
+                f.write(f"{species}\t{code}\n")
+        with self.pair_list_file.open(mode="a") as f:
+            for p1, p2 in self.unprocessed_pairs:
+                f.write(f"{p1}\t{p2}\n")
+            
 
     def construct_pangene(self):
         if self.grp_file is None:
@@ -302,8 +325,8 @@ class PangeneConstructor:
     ):
         """
         Create an MCScanX-compatible GFF file. This is a tab-separated file with four columns.
-        * The first column is a two-letter and one-to-two digit string indicating the location of the gene, where
-        the two letters correspond to the species (for the pipeline, an assigned code mapped to each species, e.g. `aa1`) and the digits
+        * The first column is a three-letter and one-to-two digit string indicating the location of the gene, where
+        the two letters correspond to the species (for the pipeline, an assigned code mapped to each species, e.g. `aaa1`) and the digits
         correspond to the chromosome number.
         * The second column is the gene identifier.
         * The third column is the start location of the gene.
@@ -313,7 +336,7 @@ class PangeneConstructor:
 
         :param gff_file: The GFF or GFF3 file to use.
         :type gff_file: Path
-        :param species_prefix: The code of the species (e.g., `aa`).
+        :param species_prefix: The code of the species (e.g., `aaa`).
         :type species_prefix: str
         :param out_dir: The directory to store the temporary GFF databases.
         :type out_dir: Path
@@ -694,7 +717,7 @@ class PangeneConstructor:
         combined_cds_file = combined_cds_file.resolve()
 
         with ProcessPoolExecutor(
-            max_workers=min(max(1, self.pm.p // 4), len(self.pairs))
+            max_workers=min(max(1, self.pm.p // 4), len(self.unprocessed_pairs))
         ) as executor:
             futures = {
                 executor.submit(
@@ -704,14 +727,16 @@ class PangeneConstructor:
                     self.blastps_dir,
                     self.gffs_dir,
                 ): pair
-                for pair in self.pairs
+                for pair in self.unprocessed_pairs
             }
             for future in as_completed(futures):
                 self.logger.info(f"MCScanX run for {futures[future]} successfully!")
 
         self._add_ka_ks_information(
-            self.pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
+            self.unprocessed_pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
         )
+        
+        self._update_maps()
 
     def _build_synteny_and_tandem_tables(self, conn: sql.Connection):
         """

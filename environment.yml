@@ -8,6 +8,7 @@ dependencies:
   # core
   - python=3.13.*
   - r-base=4.5.3
+  - perl=5.32.*
 
   # python libraries
   - gffutils=0.14

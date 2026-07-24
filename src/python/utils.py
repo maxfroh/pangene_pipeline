@@ -12,13 +12,6 @@ import numpy as np
 import pandas as pd
 from upsetplot import UpSet, util
 
-default_logger = logging.Logger("Pipeline", level=logging.DEBUG)
-handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-formatter.datefmt = "%Y-%m-%d %H:%M:%S"
-handler.setFormatter(formatter)
-default_logger.addHandler(handler)
-
 
 def build_logger(name: str):
     lgr = logging.Logger(name, level=logging.DEBUG)
@@ -30,6 +23,10 @@ def build_logger(name: str):
     handler.setFormatter(formatter)
     lgr.addHandler(handler)
     return lgr
+
+
+# The default logger to use if none provided!
+default_logger = build_logger("Pipeline")
 
 
 def execute(
@@ -140,6 +137,16 @@ def gunzip_file_quiet(source: Path, dest: Path) -> tuple[bool, str, str] | None:
 
 
 def copy_file_quiet(source: Path, dest: Path) -> tuple[bool, str, str] | None:
+    """
+    Quietly copy a file from the provided source to the provided destination.
+    
+    :param source: The source file.
+    :type source: Path
+    :param dest: The destination file.
+    :type dest: Path
+    :return: Nothing if successful, else `(False, source, dest)`
+    :rtype: None | tuple[bool, Path, Path]
+    """
     try:
         shutil.copyfile(source, dest)
     except Exception as e:
@@ -151,7 +158,11 @@ def gunzip(file: str | Path, out_file: Path = None, replace: bool = True):
     Gunzips the provided file.
 
     :param file: A `.gz` file.
-    :type file: str
+    :type file: str | Path
+    :param out_file: The file to unzip to (optional)
+    :type out_file: Path
+    :param replace: Whether to replace the original gzipped file. 
+    :type replace: bool 
     """
     cmds = ["gunzip"]
     if not replace:
@@ -167,14 +178,29 @@ def gunzip(file: str | Path, out_file: Path = None, replace: bool = True):
         execute(cmds, f"Unzipping {file}.")
 
 
-def strip_filename(file: str | Path):
-    """Remove all file extensions to just get the true basename of the path"""
+def strip_filename(file: str | Path) -> str:
+    """
+    Remove all file extensions to just get the true basename of the path.
+    
+    :param file: The filename to strip.
+    :type file: str | Path
+    :return: The true basename of the path.
+    :rtype: str
+    """
     f = Path(file)
     # remove file extensions to just get name of sample
     return os.path.splitext(os.path.splitext(f.name)[0])[0]
 
 
 def get_name_ext_and_is_gzip(file: str | Path) -> tuple[str, str, bool]:
+    """
+    Get the name of the file, its type, and whether it is currently gzipped.
+    
+    :param file: The original filename.
+    :type file: str | Path
+    :return: The name of the file, its extension, and whether it is gzipped.
+    :rtype: tuple[str, str, bool]
+    """
     f = Path(file)
     name, ext = os.path.splitext(f.name)
     name, ext2 = os.path.splitext(name)
@@ -185,6 +211,14 @@ def get_name_ext_and_is_gzip(file: str | Path) -> tuple[str, str, bool]:
 
 
 def concat_files(in_files: list[Path], out_file: Path):
+    """
+    Concatenate a list of files.
+    
+    :param in_files: A list of files to combine.
+    :type in_files: list[Path]
+    :param out_file: The name of the file to concatenate to.
+    :type out_file: Path
+    """
     with open(out_file, mode="wb") as fout:
         for file in in_files:
             with open(file, mode="rb") as fin:
