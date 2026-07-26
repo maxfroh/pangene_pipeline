@@ -63,8 +63,8 @@ class PangeneConstructor:
 
         self.pangene_dir = pangenes_dir.resolve() / reference
         self.pangene_dir.mkdir(exist_ok=True, parents=True)
-        self.tmp_dir = pangenes_dir / "shared"
-        self.tmp_dir.mkdir(exist_ok=True, parents=True)
+        self.shared_dir = pangenes_dir / "shared"
+        self.shared_dir.mkdir(exist_ok=True, parents=True)
 
         try:
             self.grp_file = pangene_info.get("grp_file", None)
@@ -73,6 +73,7 @@ class PangeneConstructor:
             self.pangene_fastas_dir = Path(pangene_info["pangene_fastas_dir"])
             self.redunancy_thresh = pangene_info["redundancy_thresh"]
             self.max_diff_r = pangene_info.get("max_diff_r", 0.001)
+            self.add_k_vals_pl = Path(pangene_info.get("add_k_vals_pl", ""))
             ks_threshold_pairs = pangene_info.get("ks_threshold_pairs", [])
             self.ks_threshold_pairs = [
                 "_".join(sorted(pair)) for pair in ks_threshold_pairs
@@ -100,38 +101,33 @@ class PangeneConstructor:
         word_sizes = [4, 5, 6, 7, 8, 9, 10, 11]
         self.word_size = word_sizes[bisect.bisect(threshholds, self.redunancy_thresh)]
 
-        self.target_pep_fastas_dir = self.tmp_dir / "pep_fastas"
+        self.target_pep_fastas_dir = self.pangene_dir / "pep_fastas"
+        if self.target_pep_fastas_dir.exists():
+            shutil.rmtree(self.target_pep_fastas_dir)
         self.target_pep_fastas_dir.mkdir(exist_ok=True, parents=True)
-        self.target_cds_fastas_dir = self.tmp_dir / "cds_fastas"
+        self.target_cds_fastas_dir = self.pangene_dir / "cds_fastas"
+        if self.target_cds_fastas_dir.exists():
+            shutil.rmtree(self.target_cds_fastas_dir)
         self.target_cds_fastas_dir.mkdir(exist_ok=True, parents=True)
         self.original_gffs = list(self.pangene_fastas_dir.glob("*/*.gff3*"))
-        self.gffs_dir = self.tmp_dir / "gffs" # move up?
+        self.gffs_dir = self.shared_dir / "gffs" # move up?
         self.gffs_dir.mkdir(exist_ok=True, parents=True)
-        self.mcscanx_dir = self.tmp_dir / "mcscanx_dir" # move up?
+        self.mcscanx_dir = self.shared_dir / "mcscanx_dir" # move up?
         self.mcscanx_dir.mkdir(exist_ok=True, parents=True)
-        self.blastps_dir = self.tmp_dir / "blastps" # move up?
+        self.blastps_dir = self.shared_dir / "blastps" # move up?
         self.blastps_dir.mkdir(exist_ok=True, parents=True)
-        self.pangene_db = self.tmp_dir / f"{self.reference}.db" # move up?
+        self.pangene_db = self.shared_dir / f"{self.reference}.db" # move up?
 
         self.plots_dir = self.pangene_dir / "plots"
         self.plots_dir.mkdir(exist_ok=True, parents=True)
 
         
-        self.species_to_code_map_file = self.tmp_dir / "map.txt"
-        self.species_to_code_map = {species: code for line in self.species_to_code_map_file.open().readlines() for species, code in line.strip().split("\t")}
-        
-        codes = [c for c in [a + b + c for a, b, c in product(string.ascii_lowercase, repeat=3)] if c not in self.species_to_code_map.values()]
-        species = [s for s in [d.name for d in self.pangene_fastas_dir.iterdir() if d.is_dir()] if s not in self.species_to_code_map.keys()]
-        self.species_to_code_map = {species[i]: codes[i] for i in range(len(species))}
-        self.code_pairs = list(combinations(self.species_to_code_map.values(), 2))
-                
-        self.pair_list_file = self.tmp_dir / "pairs.txt"
-        if self.pair_list_file.exists():
-            self.preexisting_pairs = [(a, b) for line in self.pair_list_file.open().readlines() for a, b in line.strip().split("\t")]
-        else:
-            self.preexisting_pairs = []
-            
-        self.unprocessed_pairs = [p for p in self.code_pairs if p not in self.preexisting_pairs]
+        self.species_to_code_map_file = self.shared_dir / "map.txt"
+        self.pair_list_file = self.shared_dir / "pairs.txt"
+        self.species_to_code_map = {}
+        self.code_pairs = []
+        self.preexisting_pairs = []
+        self.unprocessed_pairs = []
 
     def get_reference_info(self) -> tuple[Path, Path]:
         """
@@ -155,16 +151,39 @@ class PangeneConstructor:
             for species, code in self.species_to_code_map.items():
                 f.write(f"{species}\t{code}\n")
         with self.pair_list_file.open(mode="a") as f:
-            for p1, p2 in self.unprocessed_pairs:
-                f.write(f"{p1}\t{p2}\n")
+            for p0, p1 in self.unprocessed_pairs:
+                f.write(f"{p0}\t{p1}\n")
             
 
     def construct_pangene(self):
+        if self.species_to_code_map_file.exists():
+            self.species_to_code_map = {species: code for line in self.species_to_code_map_file.open().readlines() for species, code in [line.strip().split("\t")]}            
+        else:
+            self.species_to_code_map = {}
+        
+        codes = [c for c in [a + b for a, b in product(string.ascii_lowercase, repeat=2)] if c not in self.species_to_code_map.values()]
+        species = [s for s in [d.name for d in self.pangene_fastas_dir.iterdir() if d.is_dir()] if s not in self.species_to_code_map.keys()]
+        self.species_to_code_map.update({species[i]: codes[i] for i in range(len(species))})
+        self.code_pairs = [tuple(sorted(p)) for p in list(combinations(self.species_to_code_map.values(), 2))]
+                
+
+        if self.pair_list_file.exists():
+            self.preexisting_pairs = [tuple(sorted((a, b))) for line in self.pair_list_file.open().readlines() for a, b in [line.strip().split("\t")]]
+        else:
+            self.preexisting_pairs = []
+            
+        self.unprocessed_pairs = [tuple(sorted(p)) for p in self.code_pairs if p not in self.preexisting_pairs]
+
+        self.logger.info(f"{self.preexisting_pairs=}")
+        self.logger.info(f"{self.unprocessed_pairs=}")
+        self.logger.info(f"{self.species_to_code_map=}")
+        self.logger.info(f"{self.code_pairs=}")
+
         if self.grp_file is None:
             # Get necessary FASTAs (peptide/amino acid and CDS)
             self.gather_fastas()
             # Run OrthoFinder
-            og_of_file = self.get_orthologous_groups_with_orthofinder()
+            of_og_file = self.get_orthologous_groups_with_orthofinder()
             # Generate MCScanX-compatible GFF files
             self.prepare_gffs_for_mcscanx()
             # Generate MCScanX blastp information
@@ -174,7 +193,7 @@ class PangeneConstructor:
             # Filter MCScanX synteny blocks by a calculated Ks value
             self.calculate_ks_threshold_and_filter()
             # Use MCScanX microsynteny information to subdivide OrthoFinder groups
-            new_og_file = self.create_new_orthogroups_with_synteny_info(og_of_file)
+            new_og_file = self.create_new_orthogroups_with_synteny_info(of_og_file)
             # Turn these subdivisions into new orthologous groups
             sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
             # Create a melted orthologous group file
@@ -264,7 +283,7 @@ class PangeneConstructor:
             self.target_pep_fastas_dir
         )  # Directory containing FASTA format proteomes to use
 
-        ortho_results_dir = self.tmp_dir / "ortho_results"  # Output directory
+        ortho_results_dir = self.pangene_dir / "ortho_results"  # Output directory
         if ortho_results_dir.exists():
             shutil.rmtree(ortho_results_dir)
 
@@ -310,10 +329,11 @@ class PangeneConstructor:
             columns={"Orthogroup": "OGID"}
         )
         # Genes will be semicolon-delimited, not comma-delimited
-        orthogroups_combined = orthogroups_combined[
-            [col for col in orthogroups_combined.columns if col != "OGID"]
-        ].replace(", ", ";", regex=True)
-        of_og_file = self.tmp_dir / "of_orthogroups.tsv"
+        # orthogroups_combined = orthogroups_combined[
+        #     [col for col in orthogroups_combined.columns if col != "OGID"]
+        # ].replace(", ", ";", regex=True)
+        orthogroups_combined = orthogroups_combined.replace(", ", ";", regex=True)
+        of_og_file = self.pangene_dir / "of_orthogroups.tsv"
         orthogroups_combined.to_csv(of_og_file, sep="\t", index=False)
 
         self.logger.info("OrthoFinder finished successfully!")
@@ -321,7 +341,7 @@ class PangeneConstructor:
 
     @staticmethod
     def _prepare_individual_gff_for_mcscanx(
-        gff_file: Path, species_prefix: str, out_dir: Path, gffs_dir: Path
+        in_gff_file: Path, species_prefix: str, out_dir: Path, gffs_dir: Path
     ):
         """
         Create an MCScanX-compatible GFF file. This is a tab-separated file with four columns.
@@ -334,8 +354,8 @@ class PangeneConstructor:
 
         See https://github.com/wyp1125/MCScanX#mcscanx-1 for more info.
 
-        :param gff_file: The GFF or GFF3 file to use.
-        :type gff_file: Path
+        :param in_gff_file: The GFF or GFF3 file to use.
+        :type in_gff_file: Path
         :param species_prefix: The code of the species (e.g., `aaa`).
         :type species_prefix: str
         :param out_dir: The directory to store the temporary GFF databases.
@@ -346,14 +366,14 @@ class PangeneConstructor:
         dbs_dir = out_dir / "gff_dbs"
         dbs_dir.mkdir(exist_ok=True, parents=True)
         dbfn = dbs_dir / f"{species_prefix}.db"
-        gff_file = gffs_dir / f"{species_prefix}.gff"
+        out_gff_file = gffs_dir / f"{species_prefix}.gff"
         if dbfn.exists():
             db = gffutils.FeatureDB(dbfn)
         else:
             db = gffutils.create_db(
-                gff_file, dbfn=dbfn, force=True, keep_order=True, merge_strategy="merge"
+                in_gff_file, dbfn=dbfn, force=True, keep_order=True, merge_strategy="merge"
             )
-        with open(gff_file, mode="w") as f:
+        with open(out_gff_file, mode="w") as f:
             for transcript in db.features_of_type("mRNA"):
                 raw_id = transcript.attributes.get("ID", [None])[0]
                 if raw_id is None:
@@ -370,30 +390,33 @@ class PangeneConstructor:
         Prepare all of the original genome GFF files for MCScanX.
         """
         # Do not need more workers than number of GFF files
-        with ProcessPoolExecutor(
-            max_workers=min(self.pm.p, len(self.original_gffs))
-        ) as executor:
-            futures = {
-                executor.submit(
-                    PangeneConstructor._prepare_individual_gff_for_mcscanx,
-                    gff,
-                    self.species_to_code_map[gff.parent.name],
-                    self.tmp_dir,
-                    self.gffs_dir,
-                ): gff
-                for gff in self.original_gffs
-            }
-            for future in as_completed(futures):
-                gff3 = futures[future]
-                self.logger.info(
-                    f"Prepared the GFF for {gff3.parent.name} successfully!"
-                )
+        gffs_to_process = [gff for gff in self.original_gffs if not (self.gffs_dir / f"{self.species_to_code_map[gff.parent.name]}.gff").exists()]
+        
+        if len(gffs_to_process) > 0:
+            with ProcessPoolExecutor(
+                max_workers=min(self.pm.p, len(gffs_to_process))
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        PangeneConstructor._prepare_individual_gff_for_mcscanx,
+                        gff,
+                        self.species_to_code_map[gff.parent.name],
+                        self.shared_dir,
+                        self.gffs_dir,
+                    ): gff
+                    for gff in gffs_to_process
+                }
+                for future in as_completed(futures):
+                    gff3 = futures[future]
+                    self.logger.info(
+                        f"Prepared the GFF for {gff3.parent.name} successfully!"
+                    )
 
     def _build_blast_dbs(self):
         """
         Creates BLAST databases for every peptide FASTA file.
         """
-        blast_dbs_dir = self.tmp_dir / "blast_dbs"
+        blast_dbs_dir = self.shared_dir / "blast_dbs"
         blast_dbs_dir.mkdir(exist_ok=True, parents=True)
         db_dict = {}
         cmds_dict = {}
@@ -402,27 +425,31 @@ class PangeneConstructor:
             species_prefix = self.species_to_code_map[genome]
             blast_db_loc = blast_dbs_dir / f"{species_prefix}_prot_db"
             db_dict[species_prefix] = {"db": blast_db_loc, "fasta": fasta}
-            cmds_dict[genome] = [
-                "makeblastdb",
-                "-in",
-                fasta,
-                "-dbtype",
-                "prot",
-                "-out",
-                blast_db_loc,
-            ]
+            suffixes = [".pdb", ".phr", ".pin", ".pot", ".psq", ".ptf", ".pto"]
+            blast_db_file_exists = [blast_db_loc.with_suffix(suffix).exists() for suffix in suffixes]
+            if not all(blast_db_file_exists):
+                cmds_dict[genome] = [
+                    "makeblastdb",
+                    "-in",
+                    fasta,
+                    "-dbtype",
+                    "prot",
+                    "-out",
+                    blast_db_loc,
+                ]
 
-        with ProcessPoolExecutor(
-            max_workers=min(self.pm.p, len(self.original_gffs))
-        ) as executor:
-            futures = {
-                executor.submit(
-                    execute, cmds, f"Building BLAST database for {genome}"
-                ): genome
-                for genome, cmds in cmds_dict.items()
-            }
-            for future in as_completed(futures):
-                pass
+        if len(cmds_dict) > 0:
+            with ProcessPoolExecutor(
+                max_workers=min(self.pm.p, len(cmds_dict))
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        execute, cmds, f"Building BLAST database for {genome}"
+                    ): genome
+                    for genome, cmds in cmds_dict.items()
+                }
+                for future in as_completed(futures):
+                    pass
 
         self.logger.info(f"Built BLAST databases successfully!")
 
@@ -438,38 +465,41 @@ class PangeneConstructor:
         db_dict = self._build_blast_dbs()
         cmds_dict = {}
         for (sp1, d1), (sp2, d2) in product(db_dict.items(), repeat=2):
-            db1, fasta1 = d1["db"], d1["fasta"]
-            db2, fasta2 = d2["db"], d2["fasta"]
-            cmds = [
-                "blastp",
-                "-db",
-                db1,
-                "-query",
-                fasta2,
-                "-evalue",
-                "1e-10",
-                "-outfmt",
-                "6",
-                "-max_target_seqs",
-                "50",
-                "-num_threads",
-                "4",
-                "-out",
-                self.blastps_dir / f"{sp1}_{sp2}.blast",
-            ]
-            cmds_dict[(sp1, sp2)] = cmds
+            blast_out_file = self.blastps_dir / f"{sp1}_{sp2}.blast"
+            if not (blast_out_file.exists() or blast_out_file.with_suffix(".top").exists()):
+                db1, fasta1 = d1["db"], d1["fasta"]
+                db2, fasta2 = d2["db"], d2["fasta"]
+                cmds = [
+                    "blastp",
+                    "-db",
+                    db1,
+                    "-query",
+                    fasta2,
+                    "-evalue",
+                    "1e-10",
+                    "-outfmt",
+                    "6",
+                    "-max_target_seqs",
+                    "50",
+                    "-num_threads",
+                    "4",
+                    "-out",
+                    blast_out_file,
+                ]
+                cmds_dict[(sp1, sp2)] = cmds
 
-        with ThreadPoolExecutor(
-            max_workers=min(max(1, self.pm.p // 4), len(cmds_dict))
-        ) as executor:
-            futures = {
-                executor.submit(
-                    execute, cmds, f"Running blastp for {sp1} querying {sp2}"
-                ): (sp1, sp2)
-                for (sp1, sp2), cmds in cmds_dict.items()
-            }
-            for future in as_completed(futures):
-                sp1, sp2 = futures[future]
+        if len(cmds_dict) > 0:
+            with ThreadPoolExecutor(
+                max_workers=min(max(1, self.pm.p // 4), len(cmds_dict))
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        execute, cmds, f"Running blastp for {sp1} querying {sp2}"
+                    ): (sp1, sp2)
+                    for (sp1, sp2), cmds in cmds_dict.items()
+                }
+                for future in as_completed(futures):
+                    sp1, sp2 = futures[future]
 
         self.logger.info("Ran pairwise blastp queries successfully!")
 
@@ -511,7 +541,7 @@ class PangeneConstructor:
         blast_filtered_file = blast_file.with_suffix(".top")
         blast_filtered.to_csv(blast_filtered_file, sep="\t", index=False, header=False)
         # Remove the old file
-        blast_file.unlink()
+        # blast_file.unlink()
 
     def blastp_alignment_and_filtering(self):
         """
@@ -521,20 +551,22 @@ class PangeneConstructor:
 
         self.logger.info("Filtering BLAST results.")
 
-        blast_files = [b for b in self.blastps_dir.glob("*.blast")]
+        blast_pairs = [f"{'_'.join(pair)}.blast" for p0, p1 in self.preexisting_pairs for pair in [(p0, p0), (p0, p1), (p1, p0), (p1, p1)]]
 
-        self.logger.info(f"Filtering {blast_file.name}")
-        with ProcessPoolExecutor(
-            max_workers=min(max(1, self.pm.p // 2), len(blast_files))
-        ) as executor:
-            futures = {
-                executor.submit(
-                    PangeneConstructor._filter_blast, blast_file, self.max_diff_r
-                ): blast_file
-                for blast_file in blast_files
-            }
-            for future in as_completed(futures):
-                blast_file = futures[future]
+        blast_files = [b for b in list(self.blastps_dir.glob("*.blast")) if b.name not in blast_pairs]
+
+        if len(blast_files) > 0:
+            with ProcessPoolExecutor(
+                max_workers=min(max(1, self.pm.p // 2), len(blast_files))
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        PangeneConstructor._filter_blast, blast_file, self.max_diff_r
+                    ): blast_file
+                    for blast_file in blast_files
+                }
+                for future in as_completed(futures):
+                    blast_file = futures[future]
 
         self.logger.info("Filtered BLAST results successfully!")
 
@@ -555,17 +587,18 @@ class PangeneConstructor:
         :type gffs_dir: Path
         """
         pair_loc = mcscanx_dir / f"{pair[0]}_{pair[1]}"
-        blasts = [blastps_dir / f"{'_'.join(p)}.top" for p in product(pair, repeat=2)]
+        blasts = [blastps_dir / f"{p[0]}_{p[1]}.top" for p in product(pair, repeat=2)]
         gffs = [gffs_dir / f"{s}.gff" for s in pair]
         blast_out_file = pair_loc.with_suffix(".blast").resolve()
         gff_out_file = pair_loc.with_suffix(".gff").resolve()
+        print(f"{blasts=}")
         concat_files(blasts, blast_out_file)
         concat_files(gffs, gff_out_file)
-
-        cmds = ["MCScanX", "-b", "2", pair_loc]
+        
+        cmds = ["MCScanX", pair_loc, "-b", "2"]
         execute(cmds, "Running MCScanX.")
-        blast_out_file.unlink()
-        gff_out_file.unlink()
+        # blast_out_file.unlink()
+        # gff_out_file.unlink()
 
     # TODO: move to utils?
     @staticmethod
@@ -664,7 +697,7 @@ class PangeneConstructor:
             for coll_file in pair_to_coll_file_dict.values()
         )
         chunk_size = max(
-            min_chunk_size, np.ceil(total_lines / (p * oversubscribing_factor))
+            min_chunk_size, int(np.ceil(total_lines / (p * oversubscribing_factor)))
         )
 
         tasks = []
@@ -676,19 +709,20 @@ class PangeneConstructor:
 
         # Add Ka and Ks values to all chunks
         results: dict[tuple[str, str], list[Path]] = defaultdict(list)
-        with ThreadPoolExecutor(max_workers=p) as executor:
-            futures = {
-                executor.submit(
-                    PangeneConstructor._run_ka_ks_chunk,
-                    chunk,
-                    add_k_vals_pl,
-                    fasta_reference,
-                ): pair
-                for pair, chunk in tasks
-            }
-            for future in as_completed(futures):
-                pair = futures[future]
-                results[pair].append(future.result())
+        if len(tasks) > 0:
+            with ThreadPoolExecutor(max_workers=min(max(1, self.pm.p), len(tasks))) as executor:
+                futures = {
+                    executor.submit(
+                        PangeneConstructor._run_ka_ks_chunk,
+                        chunk,
+                        add_k_vals_pl,
+                        fasta_reference,
+                    ): pair
+                    for pair, chunk in tasks
+                }
+                for future in as_completed(futures):
+                    pair = futures[future]
+                    results[pair].append(future.result())
 
         # Recombine all chunks
         for pair, out_chunks in results.items():
@@ -716,24 +750,25 @@ class PangeneConstructor:
         concat_files(fastas, combined_cds_file)
         combined_cds_file = combined_cds_file.resolve()
 
-        with ProcessPoolExecutor(
-            max_workers=min(max(1, self.pm.p // 4), len(self.unprocessed_pairs))
-        ) as executor:
-            futures = {
-                executor.submit(
-                    PangeneConstructor._prep_files_and_run_mcscanx,
-                    pair,
-                    self.mcscanx_dir,
-                    self.blastps_dir,
-                    self.gffs_dir,
-                ): pair
-                for pair in self.unprocessed_pairs
-            }
-            for future in as_completed(futures):
-                self.logger.info(f"MCScanX run for {futures[future]} successfully!")
+        if len(self.code_pairs) > 0:
+            with ProcessPoolExecutor(
+                max_workers=min(max(1, self.pm.p // 4), len(self.code_pairs))
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        PangeneConstructor._prep_files_and_run_mcscanx,
+                        pair,
+                        self.mcscanx_dir,
+                        self.blastps_dir,
+                        self.gffs_dir,
+                    ): pair
+                    for pair in self.code_pairs
+                }
+                for future in as_completed(futures):
+                    self.logger.info(f"MCScanX run for {futures[future]} successfully!")
 
         self._add_ka_ks_information(
-            self.unprocessed_pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
+            self.code_pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
         )
         
         self._update_maps()
@@ -808,10 +843,10 @@ class PangeneConstructor:
         medians_df = pd.read_sql_query("SELECT * FROM block_medians", conn)
 
         ks_threshold_pairs = [
-            p for p in ks_threshold_pairs if p in medians_df["genome_pair"].values
+            p for p in self.ks_threshold_pairs if p in medians_df["genome_pair"].values
         ]
         invalid_threshold_pairs = [
-            p for p in ks_threshold_pairs if p not in medians_df["genome_pair"].values
+            p for p in self.ks_threshold_pairs if p not in medians_df["genome_pair"].values
         ]
 
         for pair in invalid_threshold_pairs:
@@ -957,13 +992,13 @@ class PangeneConstructor:
                 ogid = row["OGID"]
                 yield ogid, genomes, row
 
-    def create_new_orthogroups_with_synteny_info(self, og_of_file: Path) -> Path:
+    def create_new_orthogroups_with_synteny_info(self, of_og_file: Path) -> Path:
         """
         Takes the orthologous groups created by OrthoFinder and breaks them into smaller
         orthologous groups by clustering on microsynteny information.
 
-        :param og_of_file: The TSV file containing OrthoFinder-created orthologous groups.
-        :type og_of_file: Path
+        :param of_og_file: The TSV file containing OrthoFinder-created orthologous groups.
+        :type of_og_file: Path
         :return: The TSV file containing the smaller orthologous groups.
         :rtype: Path
         """
@@ -973,10 +1008,10 @@ class PangeneConstructor:
         def on_row_complete(future):
             result_queue.put(future)
 
-        new_og_file = self.tmp_dir / "new_ogs.tsv"
+        new_og_file = self.pangene_dir / "new_ogs.tsv"
         is_first_row_write = True
-        row_generator = self._stream_og_rows(og_of_file)
-        _, genomes, _ = next(self._stream_og_rows(og_of_file))
+        row_generator = self._stream_og_rows(of_og_file)
+        _, genomes, _ = next(self._stream_og_rows(of_og_file))
         ordered_columns = ["OGID"] + sorted(list(genomes))
         chunk_dfs: list[pd.DataFrame] = []
         buffer_size = self.pm.p * 10
@@ -1128,19 +1163,21 @@ class PangeneConstructor:
         :param table_name: The name of the table to write to.
         :type table_name: str
         """
-        gtfs_temp_dir = tempfile.TemporaryDirectory(suffix="gtf")
+        gtfs_temp_dir = tempfile.TemporaryDirectory(suffix="_gtf")
         gtfs_dir = Path(gtfs_temp_dir.name)
         annotation_name, annotation_type, is_gzipped = get_name_ext_and_is_gzip(
             annotation_file
         )
         # If not gzipped, this will do nothing
-        annotation_file = annotation_file.parent / f"{annotation_name}{annotation_type}"
+        # annotation_file = annotation_file.parent / f"{annotation_name}{annotation_type}"
+        temp_gtf_loc = gtfs_dir / f"{annotation_name}{annotation_type}"
         if is_gzipped:
-            gunzippped_annotation_file = (
-                gtfs_dir / f"{annotation_name}{annotation_type}"
-            )
-            gunzip_file_quiet(annotation_file, gunzippped_annotation_file)
-            annotation_file = gunzippped_annotation_file
+            # gunzippped_annotation_file = temp_gtf_loc
+            gunzip_file_quiet(annotation_file, temp_gtf_loc)
+            annotation_file = temp_gtf_loc
+        else:
+            shutil.copyfile(annotation_file, temp_gtf_loc)
+            annotation_file = temp_gtf_loc
 
         converted_to_gtf = False
         # --> GTF if annotation file is GFF
@@ -1152,7 +1189,7 @@ class PangeneConstructor:
             annotation_file = gtf_df
 
         # --> Map file
-        if ".gtf" in annotation_type.lower() or converted_to_gtf:
+        if (".gtf" in annotation_type.lower()) or converted_to_gtf:
             gtf_df = pd.read_csv(annotation_file, sep="\t", header=None, usecols=[8])
             gtf_df = pd.DataFrame.from_records(
                 gtf_df[8]
@@ -1169,6 +1206,7 @@ class PangeneConstructor:
             gtf_df = gtf_df.drop_duplicates()
             gtf_df = gtf_df.rename(columns={"gene_id": "gene", "transcript_id": "mRNA"})
 
+            print(f"CONNTECTING TO {pangene_db} for {table_name}.... {len(gtf_df)}")
             conn = sql.connect(pangene_db, timeout=30.0)
             gtf_df.to_sql(table_name, conn, if_exists="append", index=False)
             conn.close()
@@ -1197,7 +1235,7 @@ class PangeneConstructor:
         conn.execute(f"DROP TABLE IF EXISTS {gene_mRNA_table_name}")
         conn.close()
         annotation_files = list(self.pangene_fastas_dir.glob("*/*.g[t|f]f*"))
-        gtfs_dir = self.tmp_dir / "gtfs"
+        gtfs_dir = self.shared_dir / "gtfs"
         gtfs_dir.mkdir(exist_ok=True, parents=True)
         gene_mRNA_maps: list[pd.DataFrame] = []
 
@@ -1262,7 +1300,7 @@ class PangeneConstructor:
         fasta_loc = (
             self.pangene_fastas_dir / genome / f"{genome}_cds.fa.gz"
         )  # TODO: make sure this holds up to snuff -- is this generalized enough?
-        bgz_loc = self.tmp_dir / genome / f"{genome}_cds.fa.bgz"
+        bgz_loc = self.shared_dir / genome / f"{genome}_cds.fa.bgz"
         bgz_loc.parent.mkdir(exist_ok=True, parents=True)
         cmds = ["gzip", "-dc", str(fasta_loc)]
         raw_fasta = subprocess.Popen(cmds, stdout=subprocess.PIPE)
@@ -1287,7 +1325,7 @@ class PangeneConstructor:
         :return: All found sequences from the genome. A dictionary mapping all orthogroups to lists of FASTA sequence strings.
         :rtype: dict[str, list[str]]
         """
-        fasta_loc = self.tmp_dir / genome / f"{genome}_cds.fa.bgz"
+        fasta_loc = self.shared_dir / genome / f"{genome}_cds.fa.bgz"
         fasta = Fasta(str(fasta_loc))
         local_buffer = defaultdict(list)
         for orthogroup, mRNA in data:
@@ -1367,9 +1405,7 @@ class PangeneConstructor:
 
         self.logger.info("Writing orthologous groups to FASTA files.")
         self.melt_df.groupby("XGAcc")
-        self.logger.info(len(self.melt_df["OGID"].unique()))
         valid_ogids = self.melt_df.loc[self.melt_df["XGAcc"].isin(target_genomes), "OGID"].unique()
-        self.logger.info(f"^og, filtered: {len(valid_ogids)}")
         invalid_ogids = self.melt_df.loc[~self.melt_df["OGID"].isin(valid_ogids), "OGID"]
         
         for orthogroup, sequences in global_buffer.items():
