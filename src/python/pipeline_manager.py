@@ -8,7 +8,7 @@ from .pangene_constructor import PangeneConstructor
 from .param_manager import ParamManager
 from .run_manager import RunManager
 from .utils import build_logger
-
+from ...test.src.python.performance_timer import PT
 
 class ConfigDict(TypedDict):
     input: dict[str, str]
@@ -73,11 +73,16 @@ class PipelineManager:
         for pc in self.pangenes.values():
             if not pc.constructed:
                 self.logger.info(f"Making {pc.reference} pangene.")
+                PT.add_time(f"{pc}::construct_pangene", True)
                 pc.construct_pangene()
+                PT.add_time(f"{pc}::construct_pangene", False)
+                PT.checkpoint()
                 self.logger.info(f"{pc.reference} pangene made successfully!")
 
     def run(self):
+        PT.add_time(f"run", True)
         for run_name, run_data in self.config_dict["run"].items():
+            PT.set_curr_run(run_name)
             run_dir = self.runs_dir / run_name
             run_dir.mkdir(exist_ok=True, parents=True)
             run_pm = self.pm.get_run_variant(**run_data.get("params", {}))
@@ -93,9 +98,13 @@ class PipelineManager:
             self.runs[run_name] = curr_run
 
             curr_run.perform_de_analysis()
-
+        PT.add_time(f"run", False)
+        PT.checkpoint()
+        PT.add_time(f"analyze_runs", True)
         fpa = FullPipelineAnalyzer(self.runs, self.pangenes, self.tables_dir)
         fpa.analyze_runs()
+        PT.add_time(f"analyze_runs", False)
+        PT.checkpoint()
 
     def __str__(self):
         return f"PipelineManager"

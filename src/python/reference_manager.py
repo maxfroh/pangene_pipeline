@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from .utils import build_logger, execute, get_name_ext_and_is_gzip, gunzip
+from ...test.src.python.performance_timer import PT
 
 if TYPE_CHECKING:
     from .param_manager import ParamManager
@@ -43,8 +44,12 @@ class ReferenceManager:
         self.dge_dir.mkdir(exist_ok=True, parents=True)
         self.out_file = self.log_dir / f"{self.reference}.out"
         self.err_file = self.log_dir / f"{self.reference}.err"
+        PT.add_time(f"{self.reference}::prepare_annotation_file", True)
         self.annotation_file = self.prepare_annotation_file(Path(self.annotation_file))
+        PT.add_time(f"{self.reference}::prepare_annotation_file", False)
+        PT.add_time(f"{self.reference}::_get_index_file", True)
         self.index_file = self._get_index_file()
+        PT.add_time(f"{self.reference}::_get_index_file", False)
 
     def prepare_annotation_file(self, annotation_file: Path) -> Path:
         """

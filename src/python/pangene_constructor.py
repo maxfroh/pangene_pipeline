@@ -32,6 +32,7 @@ from .param_manager import ParamManager
 from .utils import (build_logger, concat_files, copy_file_quiet, execute,
                     execute_quiet, get_name_ext_and_is_gzip, gunzip_file_quiet,
                     strip_filename)
+from ...test.src.python.performance_timer import PT
 
 
 class PangeneConstructor:
@@ -156,6 +157,8 @@ class PangeneConstructor:
             
 
     def construct_pangene(self):
+        PT.set_curr_pangene(self.reference)
+        PT.add_time(f"{self.reference}::construct_pangene", True)
         if self.species_to_code_map_file.exists():
             self.species_to_code_map = {species: code for line in self.species_to_code_map_file.open().readlines() for species, code in [line.strip().split("\t")]}            
         else:
@@ -181,29 +184,52 @@ class PangeneConstructor:
 
         if self.grp_file is None:
             # Get necessary FASTAs (peptide/amino acid and CDS)
+            PT.add_time(f"{self.reference}::gather_fastas", True)
             self.gather_fastas()
+            PT.add_time(f"{self.reference}::gather_fastas", False)
             # Run OrthoFinder
+            PT.add_time(f"{self.reference}::get_orthologous_groups_with_orthofinder", True)
             of_og_file = self.get_orthologous_groups_with_orthofinder()
+            PT.add_time(f"{self.reference}::get_orthologous_groups_with_orthofinder", False)
             # Generate MCScanX-compatible GFF files
+            PT.add_time(f"{self.reference}::prepare_gffs_for_mcscanx", True)
             self.prepare_gffs_for_mcscanx()
+            PT.add_time(f"{self.reference}::prepare_gffs_for_mcscanx", False)
             # Generate MCScanX blastp information
+            PT.add_time(f"{self.reference}::blastp_alignment_and_filtering", True)
             self.blastp_alignment_and_filtering()
+            PT.add_time(f"{self.reference}::blastp_alignment_and_filtering", False)
             # Run MCScanX and add Ks/Ka microsynteny information
+            PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks", True)
             self.run_mcscanx_and_get_ks()
+            PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks", False)
             # Filter MCScanX synteny blocks by a calculated Ks value
+            PT.add_time(f"{self.reference}::calculate_ks_threshold_and_filter", True)
             self.calculate_ks_threshold_and_filter()
+            PT.add_time(f"{self.reference}::calculate_ks_threshold_and_filter", False)
             # Use MCScanX microsynteny information to subdivide OrthoFinder groups
+            PT.add_time(f"{self.reference}::create_new_orthogroups_with_synteny_info", True)
             new_og_file = self.create_new_orthogroups_with_synteny_info(of_og_file)
+            PT.add_time(f"{self.reference}::create_new_orthogroups_with_synteny_info", False)
             # Turn these subdivisions into new orthologous groups
+            PT.add_time(f"{self.reference}::rename_orthogroups_and_remove_empty", True)
             sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
+            PT.add_time(f"{self.reference}::rename_orthogroups_and_remove_empty", False)
             # Create a melted orthologous group file
+            PT.add_time(f"{self.reference}::melt_orthogroups", True)
             self.grp_file = self.melt_orthogroups(sorted_og_df_file)
+            PT.add_time(f"{self.reference}::melt_orthogroups", False)
         # # Prune redunant genes from the orthogroups
+        PT.add_time(f"{self.reference}::_prune_redundancies", True)
         self._prune_redundancies()
+        PT.add_time(f"{self.reference}::_prune_redundancies", False)
         # # Plot the pruning results
+        PT.add_time(f"{self.reference}::_prune_redundancies", True)
         self.plot_count_difference()
+        PT.add_time(f"{self.reference}::_prune_redundancies", False)
         # Mark that the pangene has been built
         self.constructed = True
+        PT.add_time(f"{self.reference}::construct_pangene", False)
         # Housekeeping to save space
         # if self.tmp_dir.exists():
         #     shutil.rmtree(self.tmp_dir)
@@ -547,7 +573,9 @@ class PangeneConstructor:
         """
         Builds blast databases and runs pairwise queries on all species, then filters them to get only top scores.
         """
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_run_blastp_queries", True)
         self._run_blastp_queries()
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_run_blastp_queries", False)
 
         self.logger.info("Filtering BLAST results.")
 
@@ -555,6 +583,7 @@ class PangeneConstructor:
 
         blast_files = [b for b in list(self.blastps_dir.glob("*.blast")) if b.name not in blast_pairs]
 
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_filter_blast", True)
         if len(blast_files) > 0:
             with ProcessPoolExecutor(
                 max_workers=min(max(1, self.pm.p // 2), len(blast_files))
@@ -567,7 +596,8 @@ class PangeneConstructor:
                 }
                 for future in as_completed(futures):
                     blast_file = futures[future]
-
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_filter_blast", False)
+        
         self.logger.info("Filtered BLAST results successfully!")
 
     @staticmethod
@@ -750,6 +780,7 @@ class PangeneConstructor:
         concat_files(fastas, combined_cds_file)
         combined_cds_file = combined_cds_file.resolve()
 
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_prep_files_and_run_mcscanx", True)
         if len(self.code_pairs) > 0:
             with ProcessPoolExecutor(
                 max_workers=min(max(1, self.pm.p // 4), len(self.code_pairs))
@@ -766,10 +797,12 @@ class PangeneConstructor:
                 }
                 for future in as_completed(futures):
                     self.logger.info(f"MCScanX run for {futures[future]} successfully!")
-
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_prep_files_and_run_mcscanx", False)
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_add_ka_ks_information", True)
         self._add_ka_ks_information(
             self.code_pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
         )
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_add_ka_ks_information", False)
         
         self._update_maps()
 

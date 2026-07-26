@@ -10,6 +10,7 @@ from .deg import DEG
 from .param_manager import ParamManager
 from .reference_manager import ReferenceManager
 from .utils import build_logger, strip_filename
+from ...test.src.python.performance_timer import PT
 
 if TYPE_CHECKING:
     from .pangene_constructor import PangeneConstructor
@@ -61,6 +62,7 @@ class RunManager:
                 refm_info[reference] = self.reference_dict[reference]
 
         for reference, (annotation_file, cds_fasta) in refm_info.items():
+            PT.set_curr_ref(reference)
             refm = ReferenceManager(
                 self.run,
                 reference,
