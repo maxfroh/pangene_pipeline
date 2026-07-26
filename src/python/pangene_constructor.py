@@ -32,7 +32,7 @@ from .param_manager import ParamManager
 from .utils import (build_logger, concat_files, copy_file_quiet, execute,
                     execute_quiet, get_name_ext_and_is_gzip, gunzip_file_quiet,
                     strip_filename)
-from ...test.src.python.performance_timer import PT
+from test.src.python.performance_timer import PT
 
 
 class PangeneConstructor:

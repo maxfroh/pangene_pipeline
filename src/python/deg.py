@@ -23,7 +23,7 @@ from upsetplot import from_contents
 
 from .reference_manager import ReferenceManager
 from .utils import FixedUpSet, build_logger, execute
-from ...test.src.python.performance_timer import PT
+from test.src.python.performance_timer import PT
 
 if TYPE_CHECKING:
     from run_manager import RunManager

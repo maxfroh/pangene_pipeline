@@ -10,7 +10,7 @@ from .deg import DEG
 from .param_manager import ParamManager
 from .reference_manager import ReferenceManager
 from .utils import build_logger, strip_filename
-from ...test.src.python.performance_timer import PT
+from test.src.python.performance_timer import PT
 
 if TYPE_CHECKING:
     from .pangene_constructor import PangeneConstructor

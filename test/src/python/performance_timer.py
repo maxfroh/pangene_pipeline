@@ -1,5 +1,5 @@
 from time import perf_counter
-from ....src.python.utils import build_logger
+from src.python.utils import build_logger
 from pathlib import Path
 
 # NB: turn off deg analysis (pipelinemanager.run?) 

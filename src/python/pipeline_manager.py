@@ -8,7 +8,7 @@ from .pangene_constructor import PangeneConstructor
 from .param_manager import ParamManager
 from .run_manager import RunManager
 from .utils import build_logger
-from ...test.src.python.performance_timer import PT
+from test.src.python.performance_timer import PT
 
 class ConfigDict(TypedDict):
     input: dict[str, str]

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from .utils import build_logger, execute, get_name_ext_and_is_gzip, gunzip
-from ...test.src.python.performance_timer import PT
+from test.src.python.performance_timer import PT
 
 if TYPE_CHECKING:
     from .param_manager import ParamManager
