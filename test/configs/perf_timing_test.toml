@@ -2,7 +2,7 @@
 base_dir = "./"
 
 [output]
-results_dir = "results"
+results_dir = "timing_results"
 out_file = "out_{run}.txt"
 err_file = "err_{run}.txt"
 
@@ -10,8 +10,8 @@ err_file = "err_{run}.txt"
 add_k_vals_pl = "../apps/MCScanX-1.0.0/downstream_analyses/add_ka_and_ks_to_collinearity.pl"
 
 [cores]
-p = 8                  # the maximum number of processors to use for an individual task instance
-auto_allocate_processors = true # automatically determine the maximum number of processors available and how many to use
+p = 100                  # the maximum number of processors to use for an individual task instance
+auto_allocate_processors = false # automatically determine the maximum number of processors available and how many to use
 
 [parameters]
 alpha = 0.05           # for p-value filtering
