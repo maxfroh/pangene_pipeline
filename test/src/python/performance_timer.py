@@ -40,16 +40,24 @@ class PerformanceTimer():
         time = perf_counter()
         if self.curr_run is None:
             if self.curr_pangene is None:
+                if func_name not in self.time_dict["Pipeline"]:
+                    self.time_dict["Pipeline"][func_name] = {}
                 self.time_dict["Pipeline"][func_name][time_point] = time
                 self.steps.append(("Pipeline", func_name, time_point))
             else:
+                if func_name not in self.time_dict[self.curr_pangene]:
+                    self.time_dict[self.curr_pangene][func_name] = {}
                 self.time_dict[self.curr_pangene][func_name][time_point] = time
                 self.steps.append((self.curr_pangene, func_name, time_point))
         else:
             if self.curr_ref is None:
+                if func_name not in self.time_dict[self.curr_run]:
+                    self.time_dict[self.curr_run][func_name] = {}
                 self.time_dict[self.curr_run][func_name][time_point] = time
                 self.steps.append((self.curr_run, func_name, time_point))
             else:
+                if func_name not in self.time_dict[self.curr_run][self.curr_ref]:
+                    self.time_dict[self.curr_run][self.curr_ref][func_name] = {}
                 self.time_dict[self.curr_run][self.curr_ref][func_name][time_point] = time
                 self.steps.append((self.curr_run, self.curr_ref, func_name, time_point))
     
