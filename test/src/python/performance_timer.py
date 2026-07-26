@@ -29,6 +29,11 @@ class PerformanceTimer():
         self.curr_ref = ref
         if self.curr_ref not in self.time_dict:
             self.time_dict[self.curr_run][self.curr_ref] = {} 
+    
+    def set_to_pipeline(self):
+        self.curr_ref = None
+        self.curr_run = None
+        self.curr_pangene = None
             
     def add_time(self, func_name: str, start: bool):
         time_point = "start" if start else "finish"

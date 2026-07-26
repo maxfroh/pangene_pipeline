@@ -70,6 +70,8 @@ class PipelineManager:
             )
 
     def setup(self):
+        PT.set_to_pipeline()
+        PT.add_time("setup", True)
         for pc in self.pangenes.values():
             if not pc.constructed:
                 self.logger.info(f"Making {pc.reference} pangene.")
@@ -78,8 +80,12 @@ class PipelineManager:
                 PT.add_time(f"{pc}::construct_pangene", False)
                 PT.checkpoint()
                 self.logger.info(f"{pc.reference} pangene made successfully!")
+        PT.set_to_pipeline()
+        PT.add_time("setup", False)
+        PT.checkpoint()
 
     def run(self):
+        PT.set_to_pipeline()
         PT.add_time(f"run", True)
         for run_name, run_data in self.config_dict["run"].items():
             PT.set_curr_run(run_name)
@@ -98,6 +104,7 @@ class PipelineManager:
             self.runs[run_name] = curr_run
 
             curr_run.perform_de_analysis()
+        PT.set_to_pipeline()
         PT.add_time(f"run", False)
         PT.checkpoint()
         PT.add_time(f"analyze_runs", True)
