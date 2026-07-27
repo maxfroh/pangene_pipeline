@@ -438,7 +438,7 @@ class PangeneConstructor:
                         f"Prepared the GFF for {gff3.parent.name} successfully!"
                     )
 
-    def _build_blast_dbs(self):
+    def _build_blast_dbs(self) -> dict[str, dict[str, Path]]:
         """
         Creates BLAST databases for every peptide FASTA file.
         """
@@ -489,18 +489,25 @@ class PangeneConstructor:
         """
         self.logger.info("Building BLAST databases and running pairwise queries.")
         db_dict = self._build_blast_dbs()
-        cmds_dict = {}
+        cmds_dict: dict[tuple[str, str, tempfile.TemporaryDirectory], list[str]] = {}
         for (sp1, d1), (sp2, d2) in product(db_dict.items(), repeat=2):
             blast_out_file = self.blastps_dir / f"{sp1}_{sp2}.blast"
             if not (blast_out_file.exists() or blast_out_file.with_suffix(".top").exists()):
                 db1, fasta1 = d1["db"], d1["fasta"]
                 db2, fasta2 = d2["db"], d2["fasta"]
+                db_name = db1.name
+                temp_dir = tempfile.TemporaryDirectory(suffix=f"_{sp1}_{sp2}", dir=(self.shared_dir / "tmp"), delete=False)
+                db = temp_dir / db_name
+                for file in db1.parent.glob(f"{db_name}.*"):
+                    shutil.copyfile(file, temp_dir / file.name)
+                fasta = temp_dir / fasta2.name
+                shutil.copyfile(fasta2, fasta)
                 cmds = [
                     "blastp",
                     "-db",
-                    db1,
+                    db,
                     "-query",
-                    fasta2,
+                    fasta,
                     "-evalue",
                     "1e-10",
                     "-outfmt",
@@ -512,7 +519,7 @@ class PangeneConstructor:
                     "-out",
                     blast_out_file,
                 ]
-                cmds_dict[(sp1, sp2)] = cmds
+                cmds_dict[(sp1, sp2, temp_dir)] = cmds
 
         if len(cmds_dict) > 0:
             with ThreadPoolExecutor(
@@ -521,11 +528,12 @@ class PangeneConstructor:
                 futures = {
                     executor.submit(
                         execute, cmds, f"Running blastp for {sp1} querying {sp2}"
-                    ): (sp1, sp2)
-                    for (sp1, sp2), cmds in cmds_dict.items()
+                    ): (sp1, sp2, temp_dir)
+                    for (sp1, sp2, temp_dir), cmds in cmds_dict.items()
                 }
                 for future in as_completed(futures):
-                    sp1, sp2 = futures[future]
+                    sp1, sp2, temp_dir = futures[future]
+                    temp_dir.cleanup()
 
         self.logger.info("Ran pairwise blastp queries successfully!")
 
