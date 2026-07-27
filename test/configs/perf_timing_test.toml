@@ -7,7 +7,7 @@ out_file = "out_{run}.txt"
 err_file = "err_{run}.txt"
 
 [dependencies]
-add_k_vals_pl = "../apps/MCScanX-1.0.0/downstream_analyses/add_ka_and_ks_to_collinearity.pl"
+add_k_vals_pl = "/data/maxfroh/apps/MCScanX-1.0.0/downstream_analyses/add_ka_and_ks_to_collinearity.pl"
 
 [cores]
 p = 100                  # the maximum number of processors to use for an individual task instance
