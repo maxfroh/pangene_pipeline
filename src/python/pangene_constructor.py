@@ -224,9 +224,9 @@ class PangeneConstructor:
         self._prune_redundancies()
         PT.add_time(f"{self.reference}::_prune_redundancies", False)
         # # Plot the pruning results
-        PT.add_time(f"{self.reference}::_prune_redundancies", True)
+        PT.add_time(f"{self.reference}::plot_count_difference", True)
         self.plot_count_difference()
-        PT.add_time(f"{self.reference}::_prune_redundancies", False)
+        PT.add_time(f"{self.reference}::plot_count_difference", False)
         # Mark that the pangene has been built
         self.constructed = True
         PT.add_time(f"{self.reference}::construct_pangene", False)
