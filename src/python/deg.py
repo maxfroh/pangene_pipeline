@@ -43,7 +43,7 @@ class DEG:
         for refm in refms:
             PT.add_time(f"{self.runm.run}::{refm}::perform_individual_de_analysis", True)
             self.perform_individual_de_analysis(refm)
-            PT.add_time(f"{self.reference}::{refm}::perform_individual_de_analysis", False)
+            PT.add_time(f"{self.runm.run}::{refm}::perform_individual_de_analysis", False)
             pass
         self.process_results()
 

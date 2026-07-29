@@ -27,7 +27,7 @@ class PerformanceTimer():
     
     def set_curr_ref(self, ref: str):
         self.curr_ref = ref
-        if self.curr_ref not in self.time_dict:
+        if self.curr_ref not in self.time_dict[self.curr_run]:
             self.time_dict[self.curr_run][self.curr_ref] = {} 
     
     def set_to_pipeline(self):
