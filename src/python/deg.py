@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import os
@@ -23,6 +22,7 @@ from upsetplot import from_contents
 
 from .reference_manager import ReferenceManager
 from .utils import FixedUpSet, build_logger, execute
+from test.src.python.performance_timer import PT
 
 if TYPE_CHECKING:
     from run_manager import RunManager
@@ -40,14 +40,22 @@ class DEG:
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
         for refm in refms:
+            PT.add_time(f"{self.runm.run}::{refm}::perform_individual_de_analysis", True)
             self.perform_individual_de_analysis(refm)
+            PT.add_time(f"{self.runm.run}::{refm}::perform_individual_de_analysis", False)
             pass
         self.process_results()
 
     def perform_individual_de_analysis(self, refm: ReferenceManager):
+        PT.add_time(f"{self.runm.run}::{refm}::run_kallisto", True)
         self.run_kallisto(refm)
+        PT.add_time(f"{self.runm.run}::{refm}::run_kallisto", False)
+        PT.add_time(f"{self.runm.run}::{refm}::make_condition_table", True)
         self.make_condition_table()
+        PT.add_time(f"{self.runm.run}::{refm}::make_condition_table", False)
+        PT.add_time(f"{self.runm.run}::{refm}::run_deseq", True)
         self.run_deseq(refm)
+        PT.add_time(f"{self.runm.run}::{refm}::run_deseq", False)
 
     def kallisto_quantify(self, refm: ReferenceManager, idx_file: Path):
         """

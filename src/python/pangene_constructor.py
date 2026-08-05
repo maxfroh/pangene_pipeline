@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import bisect
 import csv
 import gzip
@@ -32,6 +31,7 @@ from .param_manager import ParamManager
 from .utils import (build_logger, concat_files, copy_file_quiet, execute,
                     execute_quiet, get_name_ext_and_is_gzip, gunzip_file_quiet,
                     strip_filename)
+from test.src.python.performance_timer import PT
 
 
 class PangeneConstructor:
@@ -65,6 +65,8 @@ class PangeneConstructor:
         self.pangene_dir.mkdir(exist_ok=True, parents=True)
         self.shared_dir = pangenes_dir / "shared"
         self.shared_dir.mkdir(exist_ok=True, parents=True)
+        self.shared_tmp_dir = self.shared_dir / "tmp"
+        self.shared_tmp_dir.mkdir(exist_ok=True, parents=True)
 
         try:
             self.grp_file = pangene_info.get("grp_file", None)
@@ -73,7 +75,6 @@ class PangeneConstructor:
             self.pangene_fastas_dir = Path(pangene_info["pangene_fastas_dir"])
             self.redunancy_thresh = pangene_info["redundancy_thresh"]
             self.max_diff_r = pangene_info.get("max_diff_r", 0.001)
-            self.add_k_vals_pl = Path(pangene_info.get("add_k_vals_pl", ""))
             ks_threshold_pairs = pangene_info.get("ks_threshold_pairs", [])
             self.ks_threshold_pairs = [
                 "_".join(sorted(pair)) for pair in ks_threshold_pairs
@@ -84,7 +85,7 @@ class PangeneConstructor:
                 f"Required [input] key {key} is missing from the configuration!"
             )
             raise ke
-        self.annotation_file = self.pangene_dir / "annotation.map"
+        self.annotation_file = self.pangene_dir / "pruned.map"
         self.cds_fasta = self.pangene_dir / f"{reference}_cds.fa.gz"
 
         self.constituents = [c.name for c in self.pangene_fastas_dir.iterdir()]
@@ -156,6 +157,8 @@ class PangeneConstructor:
             
 
     def construct_pangene(self):
+        PT.set_curr_pangene(self.reference)
+        PT.add_time(f"{self.reference}::construct_pangene", True)
         if self.species_to_code_map_file.exists():
             self.species_to_code_map = {species: code for line in self.species_to_code_map_file.open().readlines() for species, code in [line.strip().split("\t")]}            
         else:
@@ -181,29 +184,52 @@ class PangeneConstructor:
 
         if self.grp_file is None:
             # Get necessary FASTAs (peptide/amino acid and CDS)
+            PT.add_time(f"{self.reference}::gather_fastas", True)
             self.gather_fastas()
+            PT.add_time(f"{self.reference}::gather_fastas", False)
             # Run OrthoFinder
+            PT.add_time(f"{self.reference}::get_orthologous_groups_with_orthofinder", True)
             of_og_file = self.get_orthologous_groups_with_orthofinder()
+            PT.add_time(f"{self.reference}::get_orthologous_groups_with_orthofinder", False)
             # Generate MCScanX-compatible GFF files
+            PT.add_time(f"{self.reference}::prepare_gffs_for_mcscanx", True)
             self.prepare_gffs_for_mcscanx()
+            PT.add_time(f"{self.reference}::prepare_gffs_for_mcscanx", False)
             # Generate MCScanX blastp information
+            PT.add_time(f"{self.reference}::blastp_alignment_and_filtering", True)
             self.blastp_alignment_and_filtering()
+            PT.add_time(f"{self.reference}::blastp_alignment_and_filtering", False)
             # Run MCScanX and add Ks/Ka microsynteny information
+            PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks", True)
             self.run_mcscanx_and_get_ks()
+            PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks", False)
             # Filter MCScanX synteny blocks by a calculated Ks value
+            PT.add_time(f"{self.reference}::calculate_ks_threshold_and_filter", True)
             self.calculate_ks_threshold_and_filter()
+            PT.add_time(f"{self.reference}::calculate_ks_threshold_and_filter", False)
             # Use MCScanX microsynteny information to subdivide OrthoFinder groups
+            PT.add_time(f"{self.reference}::create_new_orthogroups_with_synteny_info", True)
             new_og_file = self.create_new_orthogroups_with_synteny_info(of_og_file)
+            PT.add_time(f"{self.reference}::create_new_orthogroups_with_synteny_info", False)
             # Turn these subdivisions into new orthologous groups
+            PT.add_time(f"{self.reference}::rename_orthogroups_and_remove_empty", True)
             sorted_og_df_file = self.rename_orthogroups_and_remove_empty(new_og_file)
+            PT.add_time(f"{self.reference}::rename_orthogroups_and_remove_empty", False)
             # Create a melted orthologous group file
+            PT.add_time(f"{self.reference}::melt_orthogroups", True)
             self.grp_file = self.melt_orthogroups(sorted_og_df_file)
+            PT.add_time(f"{self.reference}::melt_orthogroups", False)
         # # Prune redunant genes from the orthogroups
-        self._prune_redundancies()
+        PT.add_time(f"{self.reference}::prune_redundancies", True)
+        self.prune_redundancies()
+        PT.add_time(f"{self.reference}::prune_redundancies", False)
         # # Plot the pruning results
+        PT.add_time(f"{self.reference}::plot_count_difference", True)
         self.plot_count_difference()
+        PT.add_time(f"{self.reference}::plot_count_difference", False)
         # Mark that the pangene has been built
         self.constructed = True
+        PT.add_time(f"{self.reference}::construct_pangene", False)
         # Housekeeping to save space
         # if self.tmp_dir.exists():
         #     shutil.rmtree(self.tmp_dir)
@@ -463,14 +489,15 @@ class PangeneConstructor:
         """
         self.logger.info("Building BLAST databases and running pairwise queries.")
         db_dict = self._build_blast_dbs()
-        cmds_dict: dict[tuple[str, str, tempfile.TemporaryDirectory], list[str]] = {}
+        cmds_dict: dict[tuple[str, str, Path], list[str]] = {}
         for (sp1, d1), (sp2, d2) in product(db_dict.items(), repeat=2):
             blast_out_file = self.blastps_dir / f"{sp1}_{sp2}.blast"
             if not (blast_out_file.exists() or blast_out_file.with_suffix(".top").exists()):
                 db1, fasta1 = d1["db"], d1["fasta"]
                 db2, fasta2 = d2["db"], d2["fasta"]
                 db_name = db1.name
-                temp_dir = tempfile.TemporaryDirectory(suffix=f"_{sp1}_{sp2}", dir=(self.shared_dir / "tmp"), delete=False)
+                temp_dir = self.shared_tmp_dir / f"{sp1}_{sp2}"
+                temp_dir.mkdir(exist_ok=True, parents=True)
                 db = temp_dir / db_name
                 for file in db1.parent.glob(f"{db_name}.*"):
                     shutil.copyfile(file, temp_dir / file.name)
@@ -507,7 +534,7 @@ class PangeneConstructor:
                 }
                 for future in as_completed(futures):
                     sp1, sp2, temp_dir = futures[future]
-                    temp_dir.cleanup()
+                    shutil.rmtree(temp_dir)
 
         self.logger.info("Ran pairwise blastp queries successfully!")
 
@@ -555,7 +582,9 @@ class PangeneConstructor:
         """
         Builds blast databases and runs pairwise queries on all species, then filters them to get only top scores.
         """
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_run_blastp_queries", True)
         self._run_blastp_queries()
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_run_blastp_queries", False)
 
         self.logger.info("Filtering BLAST results.")
 
@@ -563,6 +592,7 @@ class PangeneConstructor:
 
         blast_files = [b for b in list(self.blastps_dir.glob("*.blast")) if b.name not in blast_pairs]
 
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_filter_blast", True)
         if len(blast_files) > 0:
             with ProcessPoolExecutor(
                 max_workers=min(max(1, self.pm.p // 2), len(blast_files))
@@ -575,7 +605,8 @@ class PangeneConstructor:
                 }
                 for future in as_completed(futures):
                     blast_file = futures[future]
-
+        PT.add_time(f"{self.reference}::blastp_alignment_and_filtering::_filter_blast", False)
+        
         self.logger.info("Filtered BLAST results successfully!")
 
     @staticmethod
@@ -632,15 +663,13 @@ class PangeneConstructor:
 
     @staticmethod
     def _run_ka_ks_chunk(
-        chunk_path: Path, add_k_vals_pl: Path, fasta_reference: Path
+        chunk_path: Path, fasta_reference: Path
     ) -> Path:
         """
         Add Ka and Ks values to the given chunk.
 
         :param chunk_path: The path to the chunk file.
         :type chunk_path: Path
-        :param add_k_vals_pl: The MCScanX script to use to get Ka and Ks values.
-        :type add_k_vals_pl: Path
         :param fasta_reference: The FASTA file to reference for calculating Ka and Ks values.
         :type fasta_reference: Path
         :return: The modified chunk file.
@@ -648,8 +677,7 @@ class PangeneConstructor:
         """
         out_path = chunk_path.with_suffix(".col_ks")
         cmds = [
-            "perl",
-            add_k_vals_pl,
+            "add_ka_and_ks_to_collinearity",
             "-i",
             chunk_path,
             "-d",
@@ -665,7 +693,6 @@ class PangeneConstructor:
     def _add_ka_ks_information(
         self,
         pairs: list[tuple[str, str]],
-        add_k_vals_pl: Path,
         fasta_reference: Path,
         min_chunk_size: int = 200,
         oversubscribing_factor: int = 4,
@@ -676,8 +703,6 @@ class PangeneConstructor:
 
         :param pairs: All species pairs.
         :type pairs: list[tuple[str, str]]
-        :param add_k_vals_pl: The MCScanX script to use to get Ka and Ks values.
-        :type add_k_vals_pl: Path
         :param fasta_reference: The FASTA file to reference for calculating Ka and Ks values.
         :type fasta_reference: Path
         :param min_chunk_size: The minimum size of a chunk to process.
@@ -723,7 +748,6 @@ class PangeneConstructor:
                     executor.submit(
                         PangeneConstructor._run_ka_ks_chunk,
                         chunk,
-                        add_k_vals_pl,
                         fasta_reference,
                     ): pair
                     for pair, chunk in tasks
@@ -758,6 +782,7 @@ class PangeneConstructor:
         concat_files(fastas, combined_cds_file)
         combined_cds_file = combined_cds_file.resolve()
 
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_prep_files_and_run_mcscanx", True)
         if len(self.code_pairs) > 0:
             with ProcessPoolExecutor(
                 max_workers=min(max(1, self.pm.p // 4), len(self.code_pairs))
@@ -774,10 +799,12 @@ class PangeneConstructor:
                 }
                 for future in as_completed(futures):
                     self.logger.info(f"MCScanX run for {futures[future]} successfully!")
-
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_prep_files_and_run_mcscanx", False)
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_add_ka_ks_information", True)
         self._add_ka_ks_information(
-            self.code_pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
+            self.code_pairs, combined_cds_file, p=self.pm.p
         )
+        PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_add_ka_ks_information", False)
         
         self._update_maps()
 
@@ -1344,7 +1371,7 @@ class PangeneConstructor:
                 self.logger.error(f"{mRNA} not found in {genome}")
         return local_buffer
 
-    def _prune_redundancies(self):
+    def prune_redundancies(self):
         """
         Prunes redundancies from the pangene orthogroups using CD-HIT.
         """
@@ -1464,14 +1491,14 @@ class PangeneConstructor:
                 raise
         self.logger.info("Orthologous groups reduced with CD-HIT successfully!")
 
-        self.logger.info("Combining orthologous groups into a single FASTA.")
+        self.logger.info("Combining orthologous groups into a single FASTA file.")
         cmds = ["find", str(self.reduced_dir), "-name", "*.reduced"]
         reduced_files = self.reduced_dir.glob("*.reduced")
         with gzip.open(self.cds_fasta, mode="wt") as fout:
             for reduced_file in reduced_files:
                 with open(reduced_file, mode="r", encoding="utf-8") as fin:
                     shutil.copyfileobj(fin, fout)
-
+        
         self.logger.info("One reduced FASTA file created successfully!")
 
         annotation_df = self.melt_df[["OGID", "mRNA"]]
@@ -1482,143 +1509,7 @@ class PangeneConstructor:
         annotation_df = annotation_df.rename(
             columns={"OGID": "Geneid", "mRNA": "transcript_id"}
         )
-        annotation_df.to_csv(self.annotation_file, sep="\t", index=False)
-        self.logger.info("Gene-to-orthologous group map file created successfully!")
-
-
-    def prune_redundancies(self):
-        """
-        Prunes redundancies from the pangene orthogroups using CD-HIT.
-        """
-        self.logger.info("Shrinking orthogroups by removing redundancies.")
-        self.melt_df = pd.read_csv(self.grp_file, sep="\t", dtype=str)
-        grouped_melt_df = self.melt_df.groupby("XGAcc")
-        extraction_data: dict[str, list[tuple[str, str]]] = {}
-        for genome in grouped_melt_df.groups.keys():
-            extraction_data[genome] = (
-                grouped_melt_df.get_group(genome)[["OGID", "mRNA"]]
-                .to_records(index=False)
-                .tolist()
-            )
-
-        with ThreadPoolExecutor(max_workers=min(self.pm.p + 4, 32)) as executor:
-            executor.map(
-                self._bgz_genome, [genome for genome in grouped_melt_df.groups.keys()]
-            )
-
-        self.logger.info("Extracting FASTA records.")
-        global_buffer = defaultdict(list)
-        with ProcessPoolExecutor(max_workers=min(16, self.pm.p)) as executor:
-            future_to_genome = {
-                executor.submit(
-                    self._extract_data, genome, extraction_data[genome]
-                ): genome
-                for genome in extraction_data.keys()
-            }
-            try:
-                for future in tqdm(
-                    as_completed(future_to_genome), total=len(future_to_genome)
-                ):
-                    try:
-                        fasta_data = future.result()
-                        for orthogroup, sequences in fasta_data.items():
-                            global_buffer[orthogroup].extend(sequences)
-                    except BrokenProcessPool:
-                        self.logger.error(
-                            f"A process experienced a critical error while pruning {self.reference}, likely due to too little memory!"
-                        )
-                        raise
-                    except Exception as e:
-                        genome = future_to_genome[future]
-                        self.logger.error(
-                            f"Something went wrong processing {genome} while pruning {self.reference}: {e}"
-                        )
-
-            except (KeyboardInterrupt, SystemExit):
-                for future in future_to_genome:
-                    future.cancel()
-                raise
-
-        self.logger.info("FASTA records extracted successfully!")
-
-        fasta_dir = self.pangene_dir / "fastas"
-        if fasta_dir.exists():
-            shutil.rmtree(fasta_dir)
-        fasta_dir.mkdir(exist_ok=True, parents=True)
-        full_dir = fasta_dir / "full"
-        full_dir.mkdir(exist_ok=True, parents=True)
-        self.reduced_dir = fasta_dir / "reduced"
-        self.reduced_dir.mkdir(exist_ok=True, parents=True)
-
-        self.logger.info("Writing orthologous groups to FASTA files.")
-        for orthogroup, sequences in global_buffer.items():
-            out_fasta_loc = (
-                full_dir / f"{orthogroup}.fa"
-            )  # TODO: consider sharding later
-            with open(out_fasta_loc, mode="w") as fout:
-                fout.writelines(sequences)
-        del global_buffer
-        self.logger.info("Orthologous group FASTAs written successfully!")
-
-        self.logger.info("Using CD-HIT to make orthologous groups less redundant.")
-        cmds = {
-            og: [
-                str(cmd)
-                for cmd in [
-                    "cd-hit-est",
-                    "-i",
-                    full_dir / f"{og}.fa",
-                    "-o",
-                    self.reduced_dir / f"{og}.reduced",
-                    "-c",
-                    self.redunancy_thresh,
-                    "-n",
-                    self.word_size,
-                    "-d",
-                    0,
-                ]
-            ]
-            for og in self.melt_df["OGID"].unique()
-        }
-        with ThreadPoolExecutor(max_workers=min(self.pm.p + 4, 32)) as executor:
-            futures = [
-                executor.submit(
-                    execute_quiet,
-                    cmds[og],
-                    stdout=subprocess.DEVNULL,
-                )
-                for og in self.melt_df["OGID"].unique()
-            ]
-            try:
-                for future in tqdm(as_completed(futures), total=len(futures)):
-                    pass
-            except (KeyboardInterrupt, SystemExit):
-                for future in future_to_genome:
-                    future.cancel()
-                raise
-        self.logger.info("Orthologous groups reduced with CD-HIT successfully!")
-
-        self.logger.info("Combining orthologous groups into a single FASTA.")
-        cmds = ["find", str(self.reduced_dir), "-name", "*.reduced"]
-        reduced = subprocess.Popen(cmds, stdout=subprocess.PIPE)
-        cmds = ["xargs", "cat"]
-        with gzip.open(self.cds_fasta, mode="wt") as f:
-            execute_quiet(
-                cmds,
-                stdin=reduced.stdout,
-                stdout=f,
-            )
-
-        self.logger.info("One reduced FASTA file created successfully!")
-
-        annotation_df = self.melt_df[["OGID", "mRNA"]]
-        annotation_df["original_transcript_id"] = annotation_df["mRNA"]
-        annotation_df["mRNA"] = (
-            annotation_df["mRNA"].astype(str) + "_" + annotation_df["OGID"].astype(str)
-        )
-        annotation_df = annotation_df.rename(
-            columns={"OGID": "Geneid", "mRNA": "transcript_id"}
-        )
+        annotation_df = annotation_df.sort_values(by=["Geneid", "original_transcript_id"])
         annotation_df.to_csv(self.annotation_file, sep="\t", index=False)
         self.logger.info("Gene-to-orthologous group map file created successfully!")
 

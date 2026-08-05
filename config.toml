@@ -6,9 +6,6 @@ results_dir = "results"
 out_file = "out_{run}.txt"
 err_file = "err_{run}.txt"
 
-[dependencies]
-add_k_vals_pl = "../apps/MCScanX-1.0.0/downstream_analyses/add_ka_and_ks_to_collinearity.pl"
-
 [cores]
 p = 8                  # the maximum number of processors to use for an individual task instance
 auto_allocate_processors = true # automatically determine the maximum number of processors available and how many to use

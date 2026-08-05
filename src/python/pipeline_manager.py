@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import shutil
 from pathlib import Path
 from typing import TypedDict
@@ -8,7 +7,7 @@ from .pangene_constructor import PangeneConstructor
 from .param_manager import ParamManager
 from .run_manager import RunManager
 from .utils import build_logger
-
+from test.src.python.performance_timer import PT
 
 class ConfigDict(TypedDict):
     input: dict[str, str]
@@ -48,17 +47,6 @@ class PipelineManager:
         self.runs: dict[str, RunManager] = {}
 
         for pangene_name, pangene_info in config_dict["pangene"].items():
-            try:
-                pangene_info["add_k_vals_pl"] = config_dict["dependencies"][
-                    "add_k_vals_pl"
-                ]
-            except KeyError as ke:
-                key = str(ke).strip("'").strip('"')
-                self.logger.error(
-                    f"Required [dependencies] key {key} is missing from the configuration!"
-                )
-                raise ke
-
             self.pangenes[pangene_name] = PangeneConstructor(
                 pangene_name, self.pangenes_dir, pangene_info, self.pm
             )
@@ -70,14 +58,25 @@ class PipelineManager:
             )
 
     def setup(self):
+        PT.set_to_pipeline()
+        PT.add_time("setup", True)
         for pc in self.pangenes.values():
             if not pc.constructed:
                 self.logger.info(f"Making {pc.reference} pangene.")
+                PT.add_time(f"{pc}::construct_pangene", True)
                 pc.construct_pangene()
+                PT.add_time(f"{pc}::construct_pangene", False)
+                PT.checkpoint()
                 self.logger.info(f"{pc.reference} pangene made successfully!")
+        PT.set_to_pipeline()
+        PT.add_time("setup", False)
+        PT.checkpoint()
 
     def run(self):
+        PT.set_to_pipeline()
+        PT.add_time(f"run", True)
         for run_name, run_data in self.config_dict["run"].items():
+            PT.set_curr_run(run_name)
             run_dir = self.runs_dir / run_name
             run_dir.mkdir(exist_ok=True, parents=True)
             run_pm = self.pm.get_run_variant(**run_data.get("params", {}))
@@ -93,9 +92,14 @@ class PipelineManager:
             self.runs[run_name] = curr_run
 
             curr_run.perform_de_analysis()
-
+        PT.set_to_pipeline()
+        PT.add_time(f"run", False)
+        PT.checkpoint()
+        PT.add_time(f"analyze_runs", True)
         fpa = FullPipelineAnalyzer(self.runs, self.pangenes, self.tables_dir)
         fpa.analyze_runs()
+        PT.add_time(f"analyze_runs", False)
+        PT.checkpoint()
 
     def __str__(self):
         return f"PipelineManager"
