@@ -17,7 +17,10 @@ class ParamManager:
 
     def __post_init__(self):
         if self.auto_allocate_processors:
-            self.p = os.process_cpu_count()
+            try:
+                self.p = int(len(os.sched_getaffinity(0)) * 0.9)
+            except AttributeError:
+                self.p = int(os.process_cpu_count() * 0.9)
 
     def get_run_variant(self, **overrides) -> "ParamManager":
         return replace(self, **overrides)
