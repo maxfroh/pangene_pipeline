@@ -30,6 +30,9 @@ dependencies:
   - r-readr=2.2.0
   - r-stringr=1.6.0
 
+  # perl
+  - perl-bioperl
+
   # external tools
   - blast=2.17
   - cd-hit=4.8.1

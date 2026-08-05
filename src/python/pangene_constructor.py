@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import bisect
 import csv
 import gzip
@@ -76,7 +75,6 @@ class PangeneConstructor:
             self.pangene_fastas_dir = Path(pangene_info["pangene_fastas_dir"])
             self.redunancy_thresh = pangene_info["redundancy_thresh"]
             self.max_diff_r = pangene_info.get("max_diff_r", 0.001)
-            self.add_k_vals_pl = Path(pangene_info.get("add_k_vals_pl", ""))
             ks_threshold_pairs = pangene_info.get("ks_threshold_pairs", [])
             self.ks_threshold_pairs = [
                 "_".join(sorted(pair)) for pair in ks_threshold_pairs
@@ -665,15 +663,13 @@ class PangeneConstructor:
 
     @staticmethod
     def _run_ka_ks_chunk(
-        chunk_path: Path, add_k_vals_pl: Path, fasta_reference: Path
+        chunk_path: Path, fasta_reference: Path
     ) -> Path:
         """
         Add Ka and Ks values to the given chunk.
 
         :param chunk_path: The path to the chunk file.
         :type chunk_path: Path
-        :param add_k_vals_pl: The MCScanX script to use to get Ka and Ks values.
-        :type add_k_vals_pl: Path
         :param fasta_reference: The FASTA file to reference for calculating Ka and Ks values.
         :type fasta_reference: Path
         :return: The modified chunk file.
@@ -681,8 +677,7 @@ class PangeneConstructor:
         """
         out_path = chunk_path.with_suffix(".col_ks")
         cmds = [
-            "perl",
-            add_k_vals_pl,
+            "add_ka_and_ks_to_collinearity",
             "-i",
             chunk_path,
             "-d",
@@ -698,7 +693,6 @@ class PangeneConstructor:
     def _add_ka_ks_information(
         self,
         pairs: list[tuple[str, str]],
-        add_k_vals_pl: Path,
         fasta_reference: Path,
         min_chunk_size: int = 200,
         oversubscribing_factor: int = 4,
@@ -709,8 +703,6 @@ class PangeneConstructor:
 
         :param pairs: All species pairs.
         :type pairs: list[tuple[str, str]]
-        :param add_k_vals_pl: The MCScanX script to use to get Ka and Ks values.
-        :type add_k_vals_pl: Path
         :param fasta_reference: The FASTA file to reference for calculating Ka and Ks values.
         :type fasta_reference: Path
         :param min_chunk_size: The minimum size of a chunk to process.
@@ -756,7 +748,6 @@ class PangeneConstructor:
                     executor.submit(
                         PangeneConstructor._run_ka_ks_chunk,
                         chunk,
-                        add_k_vals_pl,
                         fasta_reference,
                     ): pair
                     for pair, chunk in tasks
@@ -811,7 +802,7 @@ class PangeneConstructor:
         PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_prep_files_and_run_mcscanx", False)
         PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_add_ka_ks_information", True)
         self._add_ka_ks_information(
-            self.code_pairs, self.add_k_vals_pl, combined_cds_file, p=self.pm.p
+            self.code_pairs, combined_cds_file, p=self.pm.p
         )
         PT.add_time(f"{self.reference}::run_mcscanx_and_get_ks::_add_ka_ks_information", False)
         
