@@ -12,7 +12,7 @@ class ParamManager:
     l2FC_thresh: float = 1  # for l2FC filtering
     frag_length_mean: int = 200  # for kallisto quant
     frag_length_std: int = 20  # for kallisto quant
-    # redundancy_thresh: 0.98,  # by how much to reduce redunandant genes in the pangene
+    # redundancy_thresh: float = 0.98  # by how much to reduce redunandant genes in the pangene
 
     def __post_init__(self):
         if self.auto_allocate_processors:

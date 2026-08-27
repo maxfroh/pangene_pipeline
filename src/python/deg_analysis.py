@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from run_manager import RunManager
 
 
-class DEG:
+class DEGAnalyzer:
     def __init__(
         self, runm: RunManager, samples: dict[str, Path], pangene_references: list[str]
     ):
@@ -39,6 +39,7 @@ class DEG:
         self.logger = build_logger(f"{self}")
 
     def perform_de_analysis(self, refms: list[ReferenceManager]):
+        # DE analysis is performed individually for each reference
         for refm in refms:
             PT.add_time(f"{self.runm.run}::{refm}::perform_individual_de_analysis", True)
             self.perform_individual_de_analysis(refm)
@@ -102,6 +103,9 @@ class DEG:
         self.kallisto_quantify(refm, refm.index_file)
 
     def make_condition_table(self):
+        """
+        Builds the condition table for DESeq2.
+        """
         conds = self.runm.conditions
         cond_dict = {"sample": [], "condition": []}
         for sample_name in self.samples.keys():
@@ -122,6 +126,12 @@ class DEG:
         return refm.dge_dir / f"abundance_{refm.reference}.tsv"
 
     def run_deseq(self, refm: ReferenceManager):
+        """
+        Runs the R script for DESeq2 analysis.
+        
+        :param refm: The `ReferenceManager` for the current reference.
+        :type refm: ReferenceManager
+        """
         cmds = [
             "Rscript",
             "./src/R/deseq.R",
@@ -131,7 +141,7 @@ class DEG:
             self._get_deseq_results_file(refm),
             self._get_kallisto_counts_file(refm),
             self._get_kallisto_abundance_file(refm),
-            *self.samples.keys(),
+            *self.samples.keys(), # any samples provided will be passed in
         ]
         execute(cmds, "Preparing for differential expression analysis with DESeq2.")
         self.logger.info("DESeq2 processing complete!")
@@ -232,6 +242,9 @@ class DEG:
         self.logger.info("Upset Plot created successfully!")
 
     def process_results(self):
+        """
+        Use the results from DESeq2 and kallisto to find DEGs.
+        """
         self.logger.info("Processing results for this run.")
         tables_dir = self.runm.tables_dir
         references_dir = self.runm.references_dir
@@ -244,6 +257,7 @@ class DEG:
 
         constructed_refs = list(set(refs) - set(self.pangene_references))
 
+        # Load the conditions table to get all control/treatment pairs
         conds_table = pd.read_csv(tables_dir / "column_data.tsv", sep="\t")
         samples = conds_table["sample"].values
         condition_to_samples_map = defaultdict(list)
@@ -263,6 +277,7 @@ class DEG:
                 self._get_annotation_file(references_dir, ref), sep="\t"
             ).drop_duplicates()
 
+        # Build a map for all genes across the references
         self.logger.info("Building a map file for all references.")
         combined_map: pd.DataFrame = None
         for p_ref in self.pangene_references:
@@ -280,6 +295,7 @@ class DEG:
         self.logger.info("Filtering using provided alpha and l2FC threshold.")
         combined_results: dict[str, pd.DataFrame] = {}
 
+        # For each reference, find fold change, mean TPM, and DEGs
         for ref in refs:
             # get abundance and padj info
             specific_ref_dge_dir = references_dir / ref / "dge"

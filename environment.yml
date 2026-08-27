@@ -10,7 +10,7 @@ dependencies:
   - r-base=4.5.3
   - perl=5.32.*
 
-  # python libraries
+  # Python libraries
   - gffutils=0.14
   - matplotlib=3.10.9
   - numpy=2.4.*
@@ -30,7 +30,7 @@ dependencies:
   - r-readr=2.2.0
   - r-stringr=1.6.0
 
-  # perl
+  # Perl libraries
   - perl-bioperl
 
   # external tools

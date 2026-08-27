@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .deg import DEG
+from .deg_analysis import DEGAnalyzer
 from .param_manager import ParamManager
 from .reference_manager import ReferenceManager
 from .utils import build_logger, strip_filename
@@ -83,7 +83,8 @@ class RunManager:
         self.conditions = self.run_data["conditions"]
 
     def perform_de_analysis(self):
-        deg = DEG(self, self.samples, self.pangene_references)
+        # Create an object to get DE analysis results
+        deg = DEGAnalyzer(self, self.samples, self.pangene_references)
         deg.perform_de_analysis(self.refms)
 
     def __getattr__(self, name):
